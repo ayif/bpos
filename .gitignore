@@ -1,0 +1,9 @@
+node_modules/
+.env
+dist/
+.next/
+*.log
+uploads/
+.DS_Store
+bpos.zip
+*.tsbuildinfo

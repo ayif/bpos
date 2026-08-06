@@ -1,0 +1,632 @@
+// bpos - Prisma schema
+// Covers: access/multi-branch, POS, product & stock (FIFO), purchasing,
+// customer & loyalty, PPOB, accounting, settings, shift, expense.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Access & Multi-Branch
+// ---------------------------------------------------------------------------
+
+enum RoleName {
+  SUPER_ADMIN
+  OWNER
+  BRANCH_MANAGER
+  CASHIER
+  WAREHOUSE
+  ACCOUNTANT
+}
+
+model Role {
+  id          String   @id @default(cuid())
+  name        RoleName @unique
+  description String?
+  permissions Json     @default("[]") // array of permission keys, e.g. ["pos.sell", "product.manage"]
+  users       User[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Branch {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  address   String?
+  phone     String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users            UserBranch[]
+  productStocks    ProductStock[]
+  stockBatches     StockBatch[]
+  stockMovements   StockMovement[]
+  sales            Sale[]
+  shifts           Shift[]
+  purchaseOrders   PurchaseOrder[]
+  goodsReceipts    GoodsReceipt[]
+  expenses         Expense[]
+  journalEntries   JournalEntry[]
+  transfersFrom    StockTransfer[]     @relation("TransferFromBranch")
+  transfersTo      StockTransfer[]     @relation("TransferToBranch")
+  stockOpnames     StockOpname[]
+  settings         StoreSetting?
+  ppobTransactions PpobTransaction[]
+}
+
+model User {
+  id           String       @id @default(cuid())
+  name         String
+  email        String       @unique
+  passwordHash String
+  roleId       String
+  role         Role         @relation(fields: [roleId], references: [id])
+  isActive     Boolean      @default(true)
+  branches     UserBranch[]
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  sales          Sale[]
+  shifts         Shift[]
+  stockMovements StockMovement[]
+  expenses       Expense[]
+  decidedPurchaseOrders PurchaseOrder[] @relation("PurchaseOrderDecision")
+}
+
+// A user can be granted access to multiple branches; one may be marked default.
+model UserBranch {
+  id        String   @id @default(cuid())
+  userId    String
+  branchId  String
+  isDefault Boolean  @default(false)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  branch    Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, branchId])
+}
+
+// ---------------------------------------------------------------------------
+// Product & Stock
+// ---------------------------------------------------------------------------
+
+model Category {
+  id        String    @id @default(cuid())
+  name      String
+  parentId  String?
+  parent    Category? @relation("CategoryToCategory", fields: [parentId], references: [id])
+  children  Category[] @relation("CategoryToCategory")
+  products  Product[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model Unit {
+  id        String    @id @default(cuid())
+  name      String    @unique // e.g. Pcs, Box, Kg
+  symbol    String
+  products  Product[]
+  createdAt DateTime  @default(now())
+}
+
+model Product {
+  id            String   @id @default(cuid())
+  sku           String   @unique
+  barcode       String?  @unique
+  name          String
+  description   String?
+  categoryId    String?
+  category      Category? @relation(fields: [categoryId], references: [id])
+  unitId        String?
+  unit          Unit?    @relation(fields: [unitId], references: [id])
+  costPrice     Decimal  @default(0) @db.Decimal(18, 2) // reference cost (last FIFO cost)
+  sellPrice     Decimal  @default(0) @db.Decimal(18, 2)
+  priceLevels   ProductPriceLevel[]
+  isTaxable     Boolean  @default(true)
+  taxRate       Decimal  @default(0) @db.Decimal(5, 2) // percent
+  minStock      Int      @default(0)
+  isActive      Boolean  @default(true)
+  imageUrl      String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  stocks            ProductStock[]
+  batches           StockBatch[]
+  movements         StockMovement[]
+  saleItems         SaleItem[]
+  purchaseItems     PurchaseOrderItem[]
+  receiptItems      GoodsReceiptItem[]
+  transferItems     StockTransferItem[]
+  opnameItems       StockOpnameItem[]
+}
+
+// Custom price per price-level (e.g. Retail, Grosir, Member) per product.
+model PriceLevel {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  minPoints   Int      @default(0) // auto-assign threshold based on loyalty points
+  createdAt   DateTime @default(now())
+
+  productPrices ProductPriceLevel[]
+  customers     Customer[]
+}
+
+model ProductPriceLevel {
+  id           String     @id @default(cuid())
+  productId    String
+  priceLevelId String
+  price        Decimal    @db.Decimal(18, 2)
+  product      Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  priceLevel   PriceLevel @relation(fields: [priceLevelId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, priceLevelId])
+}
+
+// Current on-hand qty per product per branch (denormalized for fast reads).
+model ProductStock {
+  id        String   @id @default(cuid())
+  productId String
+  branchId  String
+  qty       Int      @default(0)
+  product   Product  @relation(fields: [productId], references: [id])
+  branch    Branch   @relation(fields: [branchId], references: [id])
+  updatedAt DateTime @updatedAt
+
+  @@unique([productId, branchId])
+}
+
+// FIFO costing layers. Each purchase/receipt creates a batch; sales consume
+// batches oldest-first, giving accurate COGS.
+model StockBatch {
+  id           String   @id @default(cuid())
+  productId    String
+  branchId     String
+  qtyRemaining Int
+  qtyOriginal  Int
+  unitCost     Decimal  @db.Decimal(18, 2)
+  sourceType   String   // PURCHASE | OPNAME | TRANSFER_IN | INITIAL
+  sourceRefId  String?
+  receivedAt   DateTime @default(now())
+  product      Product  @relation(fields: [productId], references: [id])
+  branch       Branch   @relation(fields: [branchId], references: [id])
+
+  @@index([productId, branchId, receivedAt])
+}
+
+enum StockMovementType {
+  PURCHASE_IN
+  SALE_OUT
+  RETURN_IN
+  RETURN_OUT
+  TRANSFER_IN
+  TRANSFER_OUT
+  OPNAME_ADJUST
+  INITIAL
+}
+
+model StockMovement {
+  id          String            @id @default(cuid())
+  productId   String
+  branchId    String
+  type        StockMovementType
+  qty         Int               // positive = in, negative = out
+  unitCost    Decimal?          @db.Decimal(18, 2)
+  refType     String?           // Sale | PurchaseOrder | StockTransfer | StockOpname
+  refId       String?
+  note        String?
+  userId      String?
+  product     Product           @relation(fields: [productId], references: [id])
+  branch      Branch            @relation(fields: [branchId], references: [id])
+  user        User?             @relation(fields: [userId], references: [id])
+  createdAt   DateTime          @default(now())
+
+  @@index([productId, branchId])
+}
+
+model StockTransfer {
+  id            String              @id @default(cuid())
+  code          String              @unique
+  fromBranchId  String
+  toBranchId    String
+  status        String              @default("PENDING") // PENDING | IN_TRANSIT | RECEIVED | CANCELLED
+  note          String?
+  fromBranch    Branch              @relation("TransferFromBranch", fields: [fromBranchId], references: [id])
+  toBranch      Branch              @relation("TransferToBranch", fields: [toBranchId], references: [id])
+  items         StockTransferItem[]
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+}
+
+model StockTransferItem {
+  id         String        @id @default(cuid())
+  transferId String
+  productId  String
+  qty        Int
+  unitCost   Decimal       @db.Decimal(18, 2)
+  transfer   StockTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  product    Product       @relation(fields: [productId], references: [id])
+}
+
+model StockOpname {
+  id        String            @id @default(cuid())
+  code      String            @unique
+  branchId  String
+  status    String            @default("DRAFT") // DRAFT | COMPLETED
+  note      String?
+  branch    Branch            @relation(fields: [branchId], references: [id])
+  items     StockOpnameItem[]
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+}
+
+model StockOpnameItem {
+  id          String      @id @default(cuid())
+  opnameId    String
+  productId   String
+  systemQty   Int
+  countedQty  Int
+  difference  Int
+  opname      StockOpname @relation(fields: [opnameId], references: [id], onDelete: Cascade)
+  product     Product     @relation(fields: [productId], references: [id])
+}
+
+// ---------------------------------------------------------------------------
+// Purchasing & Supplier
+// ---------------------------------------------------------------------------
+
+model Supplier {
+  id        String   @id @default(cuid())
+  name      String
+  contact   String?
+  phone     String?
+  email     String?
+  address   String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  purchaseOrders PurchaseOrder[]
+}
+
+model PurchaseOrder {
+  id             String              @id @default(cuid())
+  code           String              @unique
+  supplierId     String
+  branchId       String
+  status         String              @default("PENDING_APPROVAL") // PENDING_APPROVAL | APPROVED | REJECTED | RECEIVED | CANCELLED
+  note           String?
+  decidedById    String?
+  decidedAt      DateTime?
+  decisionNote   String?
+  supplier       Supplier            @relation(fields: [supplierId], references: [id])
+  branch         Branch              @relation(fields: [branchId], references: [id])
+  decidedBy      User?               @relation("PurchaseOrderDecision", fields: [decidedById], references: [id])
+  items          PurchaseOrderItem[]
+  receipts       GoodsReceipt[]
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+}
+
+model PurchaseOrderItem {
+  id        String        @id @default(cuid())
+  poId      String
+  productId String
+  qty       Int
+  unitCost  Decimal       @db.Decimal(18, 2)
+  po        PurchaseOrder @relation(fields: [poId], references: [id], onDelete: Cascade)
+  product   Product       @relation(fields: [productId], references: [id])
+}
+
+model GoodsReceipt {
+  id        String             @id @default(cuid())
+  code      String             @unique
+  poId      String?
+  branchId  String
+  note      String?
+  po        PurchaseOrder?     @relation(fields: [poId], references: [id])
+  branch    Branch             @relation(fields: [branchId], references: [id])
+  items     GoodsReceiptItem[]
+  createdAt DateTime           @default(now())
+}
+
+model GoodsReceiptItem {
+  id        String       @id @default(cuid())
+  receiptId String
+  productId String
+  qty       Int
+  unitCost  Decimal      @db.Decimal(18, 2)
+  receipt   GoodsReceipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  product   Product      @relation(fields: [productId], references: [id])
+}
+
+// ---------------------------------------------------------------------------
+// Customer & Loyalty
+// ---------------------------------------------------------------------------
+
+model Customer {
+  id           String   @id @default(cuid())
+  name         String
+  phone        String?  @unique
+  email        String?
+  address      String?
+  points       Int      @default(0)
+  priceLevelId String?
+  priceLevel   PriceLevel? @relation(fields: [priceLevelId], references: [id])
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  sales              Sale[]
+  loyaltyTransactions LoyaltyTransaction[]
+}
+
+enum LoyaltyType {
+  EARN
+  REDEEM
+  ADJUST
+}
+
+model LoyaltyTransaction {
+  id         String      @id @default(cuid())
+  customerId String
+  type       LoyaltyType
+  points     Int
+  refType    String?     // Sale
+  refId      String?
+  note       String?
+  customer   Customer    @relation(fields: [customerId], references: [id])
+  createdAt  DateTime    @default(now())
+}
+
+// ---------------------------------------------------------------------------
+// POS / Sales
+// ---------------------------------------------------------------------------
+
+enum PaymentMethod {
+  CASH
+  TRANSFER
+  QRIS
+  MIXED
+}
+
+enum SaleStatus {
+  COMPLETED
+  RETURNED
+  PARTIALLY_RETURNED
+  VOID
+}
+
+model Sale {
+  id             String        @id @default(cuid())
+  invoiceNo      String        @unique
+  branchId       String
+  cashierId      String
+  customerId     String?
+  shiftId        String?
+  subtotal       Decimal       @db.Decimal(18, 2)
+  discountTotal  Decimal       @default(0) @db.Decimal(18, 2)
+  taxTotal       Decimal       @default(0) @db.Decimal(18, 2)
+  grandTotal     Decimal       @db.Decimal(18, 2)
+  paidTotal      Decimal       @db.Decimal(18, 2)
+  changeTotal    Decimal       @default(0) @db.Decimal(18, 2)
+  paymentMethod  PaymentMethod
+  status         SaleStatus    @default(COMPLETED)
+  note           String?
+  branch         Branch        @relation(fields: [branchId], references: [id])
+  cashier        User          @relation(fields: [cashierId], references: [id])
+  customer       Customer?     @relation(fields: [customerId], references: [id])
+  shift          Shift?        @relation(fields: [shiftId], references: [id])
+  items          SaleItem[]
+  payments       SalePayment[]
+  returns        SaleReturn[]
+  journalEntry   JournalEntry?
+  createdAt      DateTime      @default(now())
+
+  @@index([branchId, createdAt])
+}
+
+model SaleItem {
+  id         String   @id @default(cuid())
+  saleId     String
+  productId  String
+  qty        Int
+  unitPrice  Decimal  @db.Decimal(18, 2)
+  unitCost   Decimal  @db.Decimal(18, 2) // FIFO cost snapshot for COGS/profit
+  discount   Decimal  @default(0) @db.Decimal(18, 2)
+  taxAmount  Decimal  @default(0) @db.Decimal(18, 2)
+  lineTotal  Decimal  @db.Decimal(18, 2)
+  sale       Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  product    Product  @relation(fields: [productId], references: [id])
+}
+
+model SalePayment {
+  id       String        @id @default(cuid())
+  saleId   String
+  method   PaymentMethod
+  amount   Decimal       @db.Decimal(18, 2)
+  refNo    String?       // transfer/QRIS reference
+  sale     Sale          @relation(fields: [saleId], references: [id], onDelete: Cascade)
+}
+
+model SaleReturn {
+  id          String           @id @default(cuid())
+  code        String           @unique
+  saleId      String
+  reason      String?
+  totalAmount Decimal          @db.Decimal(18, 2)
+  sale        Sale             @relation(fields: [saleId], references: [id])
+  items       SaleReturnItem[]
+  createdAt   DateTime         @default(now())
+}
+
+model SaleReturnItem {
+  id           String     @id @default(cuid())
+  returnId     String
+  saleItemId   String
+  qty          Int
+  amount       Decimal    @db.Decimal(18, 2)
+  saleReturn   SaleReturn @relation(fields: [returnId], references: [id], onDelete: Cascade)
+}
+
+// ---------------------------------------------------------------------------
+// Cashier Shift
+// ---------------------------------------------------------------------------
+
+model Shift {
+  id            String    @id @default(cuid())
+  branchId      String
+  userId        String
+  openingCash   Decimal   @db.Decimal(18, 2)
+  closingCash   Decimal?  @db.Decimal(18, 2)
+  expectedCash  Decimal?  @db.Decimal(18, 2)
+  difference    Decimal?  @db.Decimal(18, 2)
+  status        String    @default("OPEN") // OPEN | CLOSED
+  openedAt      DateTime  @default(now())
+  closedAt      DateTime?
+  branch        Branch    @relation(fields: [branchId], references: [id])
+  user          User      @relation(fields: [userId], references: [id])
+  sales         Sale[]
+}
+
+// ---------------------------------------------------------------------------
+// Expense
+// ---------------------------------------------------------------------------
+
+model ExpenseCategory {
+  id       String    @id @default(cuid())
+  name     String    @unique
+  expenses Expense[]
+}
+
+model Expense {
+  id          String           @id @default(cuid())
+  code        String           @unique
+  branchId    String
+  categoryId  String
+  amount      Decimal          @db.Decimal(18, 2)
+  description String?
+  userId      String
+  branch      Branch           @relation(fields: [branchId], references: [id])
+  category    ExpenseCategory  @relation(fields: [categoryId], references: [id])
+  user        User             @relation(fields: [userId], references: [id])
+  journalEntry JournalEntry?
+  createdAt   DateTime         @default(now())
+}
+
+// ---------------------------------------------------------------------------
+// PPOB (Digiflazz) - stub/mock integration
+// ---------------------------------------------------------------------------
+
+enum PpobStatus {
+  PENDING
+  SUCCESS
+  FAILED
+}
+
+model PpobProduct {
+  id          String   @id @default(cuid())
+  buyerSkuCode String  @unique
+  productName String
+  category    String   // Pulsa | Data | PLN | BPJS | dll
+  brand       String?
+  price       Decimal  @db.Decimal(18, 2)
+  isActive    Boolean  @default(true)
+  updatedAt   DateTime @updatedAt
+
+  transactions PpobTransaction[]
+}
+
+model PpobTransaction {
+  id           String     @id @default(cuid())
+  refId        String     @unique
+  branchId     String
+  ppobProductId String
+  customerNo   String
+  amount       Decimal    @db.Decimal(18, 2)
+  sellPrice    Decimal    @db.Decimal(18, 2)
+  status       PpobStatus @default(PENDING)
+  message      String?
+  sn           String?    // serial number from provider
+  branch       Branch     @relation(fields: [branchId], references: [id])
+  ppobProduct  PpobProduct @relation(fields: [ppobProductId], references: [id])
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @default(now()) @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// Accounting (auto journal)
+// ---------------------------------------------------------------------------
+
+enum AccountType {
+  ASSET
+  LIABILITY
+  EQUITY
+  REVENUE
+  EXPENSE
+}
+
+model Account {
+  id        String      @id @default(cuid())
+  code      String      @unique
+  name      String
+  type      AccountType
+  isActive  Boolean     @default(true)
+  createdAt DateTime    @default(now())
+
+  journalLines JournalLine[]
+}
+
+model JournalEntry {
+  id          String        @id @default(cuid())
+  code        String        @unique
+  branchId    String
+  refType     String        // Sale | PurchaseOrder | Expense | Manual
+  refId       String?
+  description String?
+  saleId      String?       @unique
+  expenseId   String?       @unique
+  branch      Branch        @relation(fields: [branchId], references: [id])
+  sale        Sale?         @relation(fields: [saleId], references: [id])
+  expense     Expense?      @relation(fields: [expenseId], references: [id])
+  lines       JournalLine[]
+  createdAt   DateTime      @default(now())
+}
+
+model JournalLine {
+  id        String       @id @default(cuid())
+  entryId   String
+  accountId String
+  debit     Decimal      @default(0) @db.Decimal(18, 2)
+  credit    Decimal      @default(0) @db.Decimal(18, 2)
+  entry     JournalEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  account   Account      @relation(fields: [accountId], references: [id])
+}
+
+// ---------------------------------------------------------------------------
+// Settings
+// ---------------------------------------------------------------------------
+
+model StoreSetting {
+  id             String   @id @default(cuid())
+  branchId       String?  @unique // null = global default
+  storeName      String   @default("BPOS Store")
+  logoUrl        String?
+  address        String?
+  phone          String?
+  taxRate        Decimal  @default(0) @db.Decimal(5, 2)
+  taxInclusive   Boolean  @default(false)
+  receiptSize    String   @default("58mm") // 58mm | 80mm | A4
+  printerName    String?
+  theme          String   @default("light")
+  loyaltyEarnRate Decimal @default(1) @db.Decimal(5, 2) // points per currency unit spent
+  loyaltyRedeemRate Decimal @default(1) @db.Decimal(5, 2) // currency value per point
+  branch         Branch?  @relation(fields: [branchId], references: [id])
+  updatedAt      DateTime @updatedAt
+}

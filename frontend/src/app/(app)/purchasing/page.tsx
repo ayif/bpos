@@ -6,6 +6,7 @@ import { api, ApiClientError } from "@/lib/api";
 import { formatCurrency } from "@/lib/format";
 import { useAuth } from "@/lib/auth-context";
 import TabBar from "@/components/TabBar";
+import Modal from "@/components/Modal";
 
 const PO_STATUS_STYLE: Record<string, string> = {
   PENDING_APPROVAL: "badge-amber",
@@ -56,13 +57,27 @@ export default function PurchasingPage() {
 }
 
 function SupplierPanel({ suppliers, onSaved }: any) {
+  const { can } = useAuth();
   const [form, setForm] = useState({ name: "", contact: "", phone: "" });
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [editingSupplier, setEditingSupplier] = useState<any>(null);
+
   async function submit() {
     if (!form.name) return;
-    await api.post("/purchasing/suppliers", form);
-    setForm({ name: "", contact: "", phone: "" });
-    onSaved();
+    setError(null);
+    setBusy(true);
+    try {
+      await api.post("/purchasing/suppliers", form);
+      setForm({ name: "", contact: "", phone: "" });
+      onSaved();
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : "Gagal menyimpan supplier");
+    } finally {
+      setBusy(false);
+    }
   }
+
   return (
     <div className="grid md:grid-cols-2 gap-4">
       <div className="card space-y-2">
@@ -70,8 +85,9 @@ function SupplierPanel({ suppliers, onSaved }: any) {
         <input className="input" placeholder="Nama supplier" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
         <input className="input" placeholder="Kontak person" value={form.contact} onChange={(e) => setForm({ ...form, contact: e.target.value })} />
         <input className="input" placeholder="Telepon" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
-        <button className="btn-primary w-full" onClick={submit}>
-          Simpan
+        {error && <p className="text-xs text-red-600">{error}</p>}
+        <button className="btn-primary w-full" onClick={submit} disabled={busy}>
+          {busy ? "Menyimpan..." : "Simpan"}
         </button>
       </div>
       <div className="card overflow-x-auto min-w-0">
@@ -81,6 +97,7 @@ function SupplierPanel({ suppliers, onSaved }: any) {
               <th>Nama</th>
               <th>Kontak</th>
               <th>Telepon</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -89,12 +106,77 @@ function SupplierPanel({ suppliers, onSaved }: any) {
                 <td>{s.name}</td>
                 <td>{s.contact}</td>
                 <td>{s.phone}</td>
+                <td>
+                  {can("purchasing.manage") && (
+                    <button className="text-xs text-brand-600" onClick={() => setEditingSupplier(s)}>
+                      Edit
+                    </button>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      {editingSupplier && (
+        <SupplierEditModal
+          supplier={editingSupplier}
+          onClose={() => setEditingSupplier(null)}
+          onSaved={() => {
+            setEditingSupplier(null);
+            onSaved();
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+function SupplierEditModal({ supplier, onClose, onSaved }: any) {
+  const [form, setForm] = useState({
+    name: supplier.name ?? "",
+    contact: supplier.contact ?? "",
+    phone: supplier.phone ?? "",
+    email: supplier.email ?? "",
+    address: supplier.address ?? "",
+  });
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setBusy(true);
+    try {
+      await api.put(`/purchasing/suppliers/${supplier.id}`, form);
+      onSaved();
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : "Gagal menyimpan supplier");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal title="Edit Supplier" onClose={onClose}>
+      <form onSubmit={handleSubmit} className="space-y-3">
+        <input required className="input" placeholder="Nama supplier" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+        <input className="input" placeholder="Kontak person" value={form.contact} onChange={(e) => setForm({ ...form, contact: e.target.value })} />
+        <input className="input" placeholder="Telepon" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+        <input className="input" placeholder="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+        <input className="input" placeholder="Alamat" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
+        {error && <p className="text-xs text-red-600">{error}</p>}
+        <div className="flex gap-2 justify-end pt-2">
+          <button type="button" className="btn-secondary" onClick={onClose}>
+            Batal
+          </button>
+          <button type="submit" disabled={busy} className="btn-primary">
+            {busy ? "Menyimpan..." : "Simpan"}
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 

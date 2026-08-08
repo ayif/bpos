@@ -12,9 +12,9 @@ export default function StockPage() {
   const [tab, setTab] = useState<"transfer" | "opname" | "movements">("movements");
   const { data: branches } = useSWR("/branches", fetcher);
   const { data: products } = useSWR("/products?pageSize=100", fetcher);
-  const { data: transfers, mutate: mutateTransfers } = useSWR("/stock/transfers", fetcher);
-  const { data: opnames, mutate: mutateOpnames } = useSWR("/stock/opnames", fetcher);
-  const { data: movements } = useSWR("/stock/movements", fetcher);
+  const { data: transfers, mutate: mutateTransfers } = useSWR(tab === "transfer" ? "/stock/transfers" : null, fetcher);
+  const { data: opnames, mutate: mutateOpnames } = useSWR(tab === "opname" ? "/stock/opnames" : null, fetcher);
+  const { data: movements } = useSWR(tab === "movements" ? "/stock/movements" : null, fetcher);
 
   return (
     <div className="space-y-4">

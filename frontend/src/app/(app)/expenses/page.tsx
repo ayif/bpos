@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import useSWR from "swr";
-import { api } from "@/lib/api";
+import { api, ApiClientError } from "@/lib/api";
 import { formatCurrency, formatDate } from "@/lib/format";
 
 const fetcher = (path: string) => api.get(path);
@@ -12,12 +12,22 @@ export default function ExpensesPage() {
   const { data: expenses, mutate } = useSWR("/expenses", fetcher);
   const [form, setForm] = useState({ categoryId: "", amount: 0, description: "" });
   const [newCategory, setNewCategory] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   async function submit() {
     if (!form.categoryId || !form.amount) return;
-    await api.post("/expenses", form);
-    setForm({ categoryId: "", amount: 0, description: "" });
-    mutate();
+    setError(null);
+    setBusy(true);
+    try {
+      await api.post("/expenses", form);
+      setForm({ categoryId: "", amount: 0, description: "" });
+      mutate();
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : "Gagal menyimpan pengeluaran");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function addCategory() {
@@ -43,8 +53,9 @@ export default function ExpensesPage() {
           </select>
           <input type="number" className="input" placeholder="Jumlah (Rp)" value={form.amount} onChange={(e) => setForm({ ...form, amount: Number(e.target.value) })} />
           <input className="input" placeholder="Keterangan" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
-          <button className="btn-primary w-full" onClick={submit}>
-            Simpan
+          {error && <p className="text-xs text-red-600">{error}</p>}
+          <button className="btn-primary w-full" onClick={submit} disabled={busy}>
+            {busy ? "Menyimpan..." : "Simpan"}
           </button>
 
           <div className="pt-2 border-t">
@@ -62,6 +73,7 @@ export default function ExpensesPage() {
               <tr>
                 <th>Kode</th>
                 <th>Kategori</th>
+                <th>Keterangan</th>
                 <th>Jumlah</th>
                 <th>Tanggal</th>
               </tr>
@@ -71,6 +83,7 @@ export default function ExpensesPage() {
                 <tr key={e.id}>
                   <td>{e.code}</td>
                   <td>{e.category?.name}</td>
+                  <td>{e.description || "-"}</td>
                   <td>{formatCurrency(e.amount)}</td>
                   <td>{formatDate(e.createdAt)}</td>
                 </tr>

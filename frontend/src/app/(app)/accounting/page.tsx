@@ -2,18 +2,20 @@
 
 import { useState } from "react";
 import useSWR from "swr";
-import { api } from "@/lib/api";
+import { api, ApiClientError } from "@/lib/api";
 import { formatCurrency } from "@/lib/format";
+import { useAuth } from "@/lib/auth-context";
 import TabBar from "@/components/TabBar";
 
 const fetcher = (path: string) => api.get(path);
 
 export default function AccountingPage() {
+  const { can } = useAuth();
   const [tab, setTab] = useState<"pl" | "bs" | "cf" | "coa" | "gl" | "tax">("pl");
   const { data: pl } = useSWR(tab === "pl" ? "/accounting/reports/profit-loss" : null, fetcher);
   const { data: bs } = useSWR(tab === "bs" ? "/accounting/reports/balance-sheet" : null, fetcher);
   const { data: cf } = useSWR(tab === "cf" ? "/accounting/reports/cash-flow" : null, fetcher);
-  const { data: accounts } = useSWR(tab === "coa" || tab === "gl" ? "/accounting/accounts" : null, fetcher);
+  const { data: accounts, mutate: mutateAccounts } = useSWR(tab === "coa" || tab === "gl" ? "/accounting/accounts" : null, fetcher);
   const { data: tax } = useSWR(tab === "tax" ? "/accounting/reports/tax-report" : null, fetcher);
 
   return (
@@ -153,27 +155,74 @@ export default function AccountingPage() {
       )}
 
       {tab === "coa" && accounts && (
-        <div className="card overflow-x-auto min-w-0">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Kode</th>
-                <th>Nama Akun</th>
-                <th>Tipe</th>
-              </tr>
-            </thead>
-            <tbody>
-              {accounts.map((a: any) => (
-                <tr key={a.id}>
-                  <td>{a.code}</td>
-                  <td>{a.name}</td>
-                  <td>{a.type}</td>
+        <div className="space-y-4">
+          {can("accounting.manage") && <CoaForm onSaved={() => mutateAccounts()} />}
+          <div className="card overflow-x-auto min-w-0">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Kode</th>
+                  <th>Nama Akun</th>
+                  <th>Tipe</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {accounts.map((a: any) => (
+                  <tr key={a.id}>
+                    <td>{a.code}</td>
+                    <td>{a.name}</td>
+                    <td>{a.type}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
+    </div>
+  );
+}
+
+const ACCOUNT_TYPES = ["ASSET", "LIABILITY", "EQUITY", "REVENUE", "EXPENSE"];
+
+function CoaForm({ onSaved }: { onSaved: () => void }) {
+  const [form, setForm] = useState({ code: "", name: "", type: "ASSET" });
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function submit() {
+    if (!form.code || !form.name) return;
+    setError(null);
+    setBusy(true);
+    try {
+      await api.post("/accounting/accounts", form);
+      setForm({ code: "", name: "", type: "ASSET" });
+      onSaved();
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : "Gagal menyimpan akun");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="card space-y-2 max-w-md">
+      <h3 className="font-medium text-sm">Akun Baru</h3>
+      <div className="grid grid-cols-3 gap-2">
+        <input className="input" placeholder="Kode" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} />
+        <input className="input col-span-2" placeholder="Nama akun" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+      </div>
+      <select className="input" value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
+        {ACCOUNT_TYPES.map((t) => (
+          <option key={t} value={t}>
+            {t}
+          </option>
+        ))}
+      </select>
+      {error && <p className="text-xs text-red-600">{error}</p>}
+      <button className="btn-primary w-full" onClick={submit} disabled={busy}>
+        {busy ? "Menyimpan..." : "Simpan"}
+      </button>
     </div>
   );
 }

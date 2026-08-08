@@ -4,6 +4,8 @@ import { useState, useEffect, useMemo } from "react";
 import useSWR from "swr";
 import { api, ApiClientError } from "@/lib/api";
 import { formatCurrency } from "@/lib/format";
+import { useAuth } from "@/lib/auth-context";
+import TabBar from "@/components/TabBar";
 import { Search, Trash2, PackageSearch } from "lucide-react";
 
 const fetcher = (path: string) => api.get(path);
@@ -17,6 +19,8 @@ interface CartLine {
 }
 
 export default function PosPage() {
+  const { can } = useAuth();
+  const [tab, setTab] = useState<"kasir" | "retur">("kasir");
   const [query, setQuery] = useState("");
   const [cart, setCart] = useState<CartLine[]>([]);
   const [customerId, setCustomerId] = useState<string>("");
@@ -85,12 +89,27 @@ export default function PosPage() {
     return <div className="text-sm text-gray-400 animate-pulse">Memuat...</div>;
   }
 
-  if (!currentShift) {
-    return <OpenShiftPrompt onOpened={() => window.location.reload()} />;
-  }
+  const canRefund = can("pos.refund");
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <div className="space-y-4">
+      {canRefund && (
+        <TabBar
+          value={tab}
+          onChange={setTab}
+          options={[
+            { value: "kasir", label: "Kasir" },
+            { value: "retur", label: "Retur" },
+          ]}
+        />
+      )}
+
+      {tab === "retur" && canRefund ? (
+        <ReturnPanel />
+      ) : !currentShift ? (
+        <OpenShiftPrompt onOpened={() => window.location.reload()} />
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
       <div className="lg:col-span-2 space-y-4">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
@@ -215,6 +234,8 @@ export default function PosPage() {
           </a>
         )}
       </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -246,6 +267,119 @@ function OpenShiftPrompt({ onOpened }: { onOpened: () => void }) {
       <button onClick={handleOpen} disabled={busy} className="btn-primary w-full">
         {busy ? "Membuka..." : "Buka Shift"}
       </button>
+    </div>
+  );
+}
+
+function ReturnPanel() {
+  const { data: sales } = useSWR("/pos/sales", fetcher);
+  const [selectedSaleId, setSelectedSaleId] = useState<string | null>(null);
+  const { data: sale } = useSWR(selectedSaleId ? `/pos/sales/${selectedSaleId}` : null, fetcher);
+  const [qtyMap, setQtyMap] = useState<Record<string, number>>({});
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  function selectSale(id: string) {
+    setSelectedSaleId(id);
+    setQtyMap({});
+    setReason("");
+    setError(null);
+    setMessage(null);
+  }
+
+  async function submitReturn() {
+    if (!sale) return;
+    const items = Object.entries(qtyMap)
+      .filter(([, qty]) => qty > 0)
+      .map(([saleItemId, qty]) => ({ saleItemId, qty }));
+    if (items.length === 0) {
+      setError("Pilih minimal satu item untuk diretur");
+      return;
+    }
+    setError(null);
+    setMessage(null);
+    setBusy(true);
+    try {
+      await api.post(`/pos/sales/${sale.id}/return`, { items, reason: reason || undefined });
+      setMessage("Retur berhasil diproses.");
+      setQtyMap({});
+      setReason("");
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : "Gagal memproses retur");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="card overflow-y-auto max-h-[70vh]">
+        <h2 className="font-medium text-gray-900 mb-2">Transaksi Terbaru</h2>
+        <div className="space-y-1">
+          {sales?.map((s: any) => (
+            <button
+              key={s.id}
+              onClick={() => selectSale(s.id)}
+              className={`w-full text-left text-sm px-2.5 py-2 rounded-lg transition-colors ${
+                selectedSaleId === s.id ? "bg-brand-50 text-brand-700" : "hover:bg-gray-50 text-gray-700"
+              }`}
+            >
+              <div className="font-medium">{s.invoiceNo}</div>
+              <div className="text-xs text-gray-400">
+                {formatCurrency(s.grandTotal)} · {s.status}
+              </div>
+            </button>
+          ))}
+          {sales?.length === 0 && <p className="text-xs text-gray-400">Belum ada transaksi</p>}
+        </div>
+      </div>
+
+      <div className="card lg:col-span-2">
+        {!sale ? (
+          <p className="text-sm text-gray-400">Pilih transaksi di sebelah kiri untuk memproses retur.</p>
+        ) : (
+          <div className="space-y-3">
+            <h2 className="font-medium text-gray-900">Retur — {sale.invoiceNo}</h2>
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Produk</th>
+                  <th>Qty Terjual</th>
+                  <th>Qty Retur</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sale.items.map((item: any) => (
+                  <tr key={item.id}>
+                    <td>{item.product?.name ?? item.productId}</td>
+                    <td>{item.qty}</td>
+                    <td>
+                      <input
+                        type="number"
+                        min={0}
+                        max={item.qty}
+                        className="w-20 rounded-md border border-gray-300 px-2 py-1 text-sm"
+                        value={qtyMap[item.id] ?? 0}
+                        onChange={(e) =>
+                          setQtyMap((prev) => ({ ...prev, [item.id]: Math.min(item.qty, Math.max(0, Number(e.target.value))) }))
+                        }
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <input className="input" placeholder="Alasan retur (opsional)" value={reason} onChange={(e) => setReason(e.target.value)} />
+            {error && <p className="text-xs text-red-600">{error}</p>}
+            {message && <p className="text-xs text-green-700 bg-green-50 rounded-md px-2.5 py-1.5">{message}</p>}
+            <button className="btn-primary" onClick={submitReturn} disabled={busy}>
+              {busy ? "Memproses..." : "Proses Retur"}
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

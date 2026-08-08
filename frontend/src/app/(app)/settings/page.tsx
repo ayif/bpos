@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import useSWR from "swr";
-import { api } from "@/lib/api";
+import { api, ApiClientError } from "@/lib/api";
 
 const fetcher = (path: string) => api.get(path);
 
@@ -10,6 +10,8 @@ export default function SettingsPage() {
   const { data: setting, mutate } = useSWR("/settings", fetcher);
   const [form, setForm] = useState<any>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (setting) setForm(setting);
@@ -17,14 +19,23 @@ export default function SettingsPage() {
 
   async function save() {
     const { id, branchId, createdAt, updatedAt, ...body } = form;
-    await api.put("/settings", {
-      ...body,
-      taxRate: Number(body.taxRate),
-      loyaltyEarnRate: Number(body.loyaltyEarnRate),
-      loyaltyRedeemRate: Number(body.loyaltyRedeemRate),
-    });
-    setMessage("Pengaturan disimpan.");
-    mutate();
+    setMessage(null);
+    setError(null);
+    setBusy(true);
+    try {
+      await api.put("/settings", {
+        ...body,
+        taxRate: Number(body.taxRate),
+        loyaltyEarnRate: Number(body.loyaltyEarnRate),
+        loyaltyRedeemRate: Number(body.loyaltyRedeemRate),
+      });
+      setMessage("Pengaturan disimpan.");
+      mutate();
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : "Gagal menyimpan pengaturan");
+    } finally {
+      setBusy(false);
+    }
   }
 
   if (!form) return <div className="text-sm text-gray-500">Memuat...</div>;
@@ -80,9 +91,10 @@ export default function SettingsPage() {
             <input type="number" className="input" value={form.loyaltyRedeemRate ?? 1} onChange={(e) => setForm({ ...form, loyaltyRedeemRate: e.target.value })} />
           </div>
         </div>
+        {error && <p className="text-xs text-red-600">{error}</p>}
         {message && <p className="text-xs text-brand-700">{message}</p>}
-        <button className="btn-primary" onClick={save}>
-          Simpan Pengaturan
+        <button className="btn-primary" onClick={save} disabled={busy}>
+          {busy ? "Menyimpan..." : "Simpan Pengaturan"}
         </button>
       </div>
     </div>

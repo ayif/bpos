@@ -155,6 +155,7 @@ posRouter.get("/sales/:id", requirePermission("pos.view"), async (req, res) => {
     include: { items: { include: { product: true } }, payments: true, customer: true, branch: true, cashier: true },
   });
   if (!sale) throw ApiError.notFound("Sale not found");
+  if (sale.branchId !== req.branchId) throw ApiError.forbidden("You do not have access to this branch");
   res.json(sale);
 });
 
@@ -165,6 +166,7 @@ posRouter.get("/sales/:id/receipt.pdf", requirePermission("pos.view"), async (re
     include: { items: { include: { product: true } }, payments: true, branch: true, customer: true },
   });
   if (!sale) throw ApiError.notFound("Sale not found");
+  if (sale.branchId !== req.branchId) throw ApiError.forbidden("You do not have access to this branch");
 
   const setting = await prisma.storeSetting.findFirst({ where: { branchId: sale.branchId } });
   const width = setting?.receiptSize === "80mm" ? 227 : setting?.receiptSize === "A4" ? 595 : 164;
@@ -211,6 +213,7 @@ posRouter.post("/sales/:id/return", requirePermission("pos.refund"), async (req,
   const body = returnSchema.parse(req.body);
   const sale = await prisma.sale.findUnique({ where: { id: req.params.id }, include: { items: true } });
   if (!sale) throw ApiError.notFound("Sale not found");
+  if (sale.branchId !== req.branchId) throw ApiError.forbidden("You do not have access to this branch");
 
   const result = await prisma.$transaction(async (tx) => {
     let totalAmount = 0;

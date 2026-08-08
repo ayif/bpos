@@ -16,13 +16,16 @@ settingsRouter.get("/", requirePermission("settings.view"), async (req, res) => 
 
 const settingSchema = z.object({
   storeName: z.string().optional(),
-  logoUrl: z.string().optional(),
-  address: z.string().optional(),
-  phone: z.string().optional(),
+  // These four are nullable columns (StoreSetting.logoUrl/address/phone/printerName in
+  // schema.prisma) — GET /settings round-trips them back as `null` when unset, so PUT
+  // must accept `null` too, not just `undefined`, or saving straight after a fetch 400s.
+  logoUrl: z.string().nullable().optional(),
+  address: z.string().nullable().optional(),
+  phone: z.string().nullable().optional(),
+  printerName: z.string().nullable().optional(),
   taxRate: z.number().min(0).max(100).optional(),
   taxInclusive: z.boolean().optional(),
   receiptSize: z.enum(["58mm", "80mm", "A4"]).optional(),
-  printerName: z.string().optional(),
   theme: z.string().optional(),
   loyaltyEarnRate: z.number().min(0).optional(),
   loyaltyRedeemRate: z.number().min(0).optional(),

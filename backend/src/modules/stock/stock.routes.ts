@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "@/config/prisma";
-import { authenticate, requirePermission, resolveBranch } from "@/middleware/auth";
+import { authenticate, requirePermission, resolveBranch, isSuperAdmin, branchScope } from "@/middleware/auth";
 import { generateCode } from "@/utils/codes";
 import { consumeStockFifo, receiveStock, getStockQty } from "./stock.service";
 import { ApiError } from "@/utils/errors";
@@ -69,7 +69,14 @@ stockRouter.post("/transfers", resolveBranch, requirePermission("stock.transfer"
 });
 
 stockRouter.get("/transfers", requirePermission("stock.transfer"), async (req, res) => {
+  // A transfer touches two branches (source/destination), so it doesn't fit the
+  // single-`branchId` shape of branchScope() — restrict to transfers where the
+  // user's own branch is either side, instead of leaking every branch's transfers.
+  const where = isSuperAdmin(req)
+    ? {}
+    : { OR: [{ fromBranchId: { in: req.user!.branchIds } }, { toBranchId: { in: req.user!.branchIds } }] };
   const transfers = await prisma.stockTransfer.findMany({
+    where,
     include: { items: { include: { product: true } }, fromBranch: true, toBranch: true },
     orderBy: { createdAt: "desc" },
     take: 100,
@@ -141,8 +148,9 @@ stockRouter.post("/opnames", resolveBranch, requirePermission("stock.opname"), a
   res.status(201).json(result);
 });
 
-stockRouter.get("/opnames", requirePermission("stock.opname"), async (_req, res) => {
+stockRouter.get("/opnames", requirePermission("stock.opname"), async (req, res) => {
   const opnames = await prisma.stockOpname.findMany({
+    where: branchScope(req, req.query.branchId as string | undefined),
     include: { items: { include: { product: true } }, branch: true },
     orderBy: { createdAt: "desc" },
     take: 100,

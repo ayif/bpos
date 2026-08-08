@@ -1,7 +1,7 @@
 import { Request, Router } from "express";
 import { z } from "zod";
 import { prisma } from "@/config/prisma";
-import { authenticate, requirePermission } from "@/middleware/auth";
+import { authenticate, requirePermission, branchScope } from "@/middleware/auth";
 import { ApiError } from "@/utils/errors";
 import { ACCOUNT_CODES } from "@/modules/accounting/accounting.service";
 
@@ -9,26 +9,6 @@ const CREDIT_NORMAL_TYPES = new Set(["LIABILITY", "EQUITY", "REVENUE"]);
 
 export const accountingRouter = Router();
 accountingRouter.use(authenticate);
-
-// Reports here take an optional `branchId` query param rather than the usual
-// `X-Branch-Id` header (to allow cross-branch aggregate reports for admins).
-// Without this check, any authenticated user with accounting.view could pass
-// an arbitrary branchId and read another branch's financials. Non-super-admin
-// users are restricted to their own branchIds; omitting branchId scopes the
-// query to just those branches instead of leaking every branch's data.
-function branchScope(req: Request, requestedBranchId?: string): { branchId?: string | { in: string[] } } {
-  const user = req.user!;
-  const isSuperAdmin = user.permissions.includes("*");
-
-  if (requestedBranchId) {
-    if (!isSuperAdmin && !user.branchIds.includes(requestedBranchId)) {
-      throw ApiError.forbidden("You do not have access to this branch");
-    }
-    return { branchId: requestedBranchId };
-  }
-  if (isSuperAdmin) return {};
-  return { branchId: { in: user.branchIds } };
-}
 
 // ---- Chart of accounts ----
 accountingRouter.get("/accounts", requirePermission("accounting.view"), async (_req, res) => {

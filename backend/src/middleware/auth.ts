@@ -52,3 +52,26 @@ export function requirePermission(...perms: string[]) {
     next();
   };
 }
+
+export function isSuperAdmin(req: Request): boolean {
+  return req.user!.permissions.includes("*");
+}
+
+// For list/report endpoints that take an optional `branchId` query param rather than
+// the usual `X-Branch-Id` header (e.g. to allow cross-branch aggregate views for admins).
+// Without this, any authenticated user could pass an arbitrary branchId (or omit it) and
+// read every branch's data. Non-super-admin users are restricted to their own branchIds;
+// omitting branchId scopes the query to just those branches instead of leaking everything.
+export function branchScope(req: Request, requestedBranchId?: string): { branchId?: string | { in: string[] } } {
+  const user = req.user!;
+  const superAdmin = isSuperAdmin(req);
+
+  if (requestedBranchId) {
+    if (!superAdmin && !user.branchIds.includes(requestedBranchId)) {
+      throw ApiError.forbidden("You do not have access to this branch");
+    }
+    return { branchId: requestedBranchId };
+  }
+  if (superAdmin) return {};
+  return { branchId: { in: user.branchIds } };
+}

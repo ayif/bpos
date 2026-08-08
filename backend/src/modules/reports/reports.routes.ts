@@ -16,7 +16,7 @@ function dateRange(query: Record<string, string>) {
 async function salesData(branchId: string | undefined, from: Date, to: Date) {
   return prisma.sale.findMany({
     where: { branchId, createdAt: { gte: from, lte: to }, status: { in: ["COMPLETED", "PARTIALLY_RETURNED"] } },
-    include: { items: { include: { product: true } } },
+    include: { items: { include: { product: true } }, payments: true },
     orderBy: { createdAt: "asc" },
   });
 }
@@ -30,12 +30,16 @@ reportsRouter.get("/sales", requirePermission("report.view"), async (req, res) =
   let totalCogs = 0;
   let totalDiscount = 0;
   let totalTax = 0;
+  const paymentBreakdown: Record<string, number> = {};
 
   for (const sale of sales) {
     totalSales += Number(sale.grandTotal);
     totalDiscount += Number(sale.discountTotal);
     totalTax += Number(sale.taxTotal);
     for (const item of sale.items) totalCogs += Number(item.unitCost) * item.qty;
+    for (const payment of sale.payments) {
+      paymentBreakdown[payment.method] = (paymentBreakdown[payment.method] ?? 0) + Number(payment.amount);
+    }
   }
 
   res.json({
@@ -46,13 +50,19 @@ reportsRouter.get("/sales", requirePermission("report.view"), async (req, res) =
     totalTax,
     totalCogs,
     grossProfit: totalSales - totalCogs,
-    sales: sales.map((s) => ({
-      id: s.id,
-      invoiceNo: s.invoiceNo,
-      date: s.createdAt,
-      grandTotal: Number(s.grandTotal),
-      itemCount: s.items.length,
-    })),
+    paymentBreakdown,
+    sales: sales.map((s) => {
+      const cogs = s.items.reduce((sum, item) => sum + Number(item.unitCost) * item.qty, 0);
+      return {
+        id: s.id,
+        invoiceNo: s.invoiceNo,
+        date: s.createdAt,
+        grandTotal: Number(s.grandTotal),
+        itemCount: s.items.length,
+        cogs,
+        profit: Number(s.grandTotal) - cogs,
+      };
+    }),
   });
 });
 

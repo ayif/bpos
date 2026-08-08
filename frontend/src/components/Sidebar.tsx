@@ -1,82 +1,52 @@
 "use client";
 
+import { useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import useSWR from "swr";
 import { useAuth } from "@/lib/auth-context";
-import {
-  LayoutDashboard,
-  ShoppingCart,
-  Package,
-  ArrowLeftRight,
-  Truck,
-  Users,
-  Smartphone,
-  FileBarChart,
-  BookOpenText,
-  Receipt,
-  Clock,
-  Building2,
-  UserCog,
-  Settings,
-  ShoppingBag,
-  type LucideIcon,
-} from "lucide-react";
+import { api } from "@/lib/api";
+import { NAV } from "@/lib/nav";
+import { ShoppingBag, Power } from "lucide-react";
 
-interface NavItem {
-  href: string;
-  label: string;
-  perm: string | null;
-  icon: LucideIcon;
+const fetcher = (path: string) => api.get(path);
+
+function initials(name?: string) {
+  if (!name) return "?";
+  const parts = name.trim().split(/\s+/);
+  return ((parts[0]?.[0] ?? "") + (parts[1]?.[0] ?? "")).toUpperCase();
 }
 
-interface NavGroup {
-  label: string;
-  items: NavItem[];
-}
-
-const NAV: NavGroup[] = [
-  {
-    label: "Utama",
-    items: [{ href: "/dashboard", label: "Dashboard", perm: null, icon: LayoutDashboard }],
-  },
-  {
-    label: "Operasional",
-    items: [
-      { href: "/pos", label: "Kasir (POS)", perm: "pos.sell", icon: ShoppingCart },
-      { href: "/products", label: "Produk & Stok", perm: "product.view", icon: Package },
-      { href: "/stock", label: "Transfer & Opname", perm: "stock.view", icon: ArrowLeftRight },
-      { href: "/purchasing", label: "Pembelian & Supplier", perm: "purchasing.view", icon: Truck },
-      { href: "/customers", label: "Pelanggan & Loyalty", perm: "customer.view", icon: Users },
-      { href: "/ppob", label: "PPOB", perm: "ppob.view", icon: Smartphone },
-      { href: "/shift", label: "Shift Kasir", perm: "shift.manage", icon: Clock },
-    ],
-  },
-  {
-    label: "Manajemen",
-    items: [
-      { href: "/reports", label: "Laporan", perm: "report.view", icon: FileBarChart },
-      { href: "/accounting", label: "Akuntansi", perm: "accounting.view", icon: BookOpenText },
-      { href: "/expenses", label: "Pengeluaran", perm: "expense.view", icon: Receipt },
-    ],
-  },
-  {
-    label: "Sistem",
-    items: [
-      { href: "/branches", label: "Cabang", perm: "branch.view", icon: Building2 },
-      { href: "/users", label: "Pengguna", perm: "user.manage", icon: UserCog },
-      { href: "/settings", label: "Pengaturan", perm: "settings.view", icon: Settings },
-    ],
-  },
-];
-
-export default function Sidebar() {
+export default function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const pathname = usePathname();
-  const { can } = useAuth();
+  const { user, can, logout } = useAuth();
+
+  // Badge on "Pembelian & Supplier": count of POs waiting on this user's approval.
+  const { data: purchaseOrders } = useSWR(can("purchasing.approve") ? "/purchasing/purchase-orders" : null, fetcher);
+  const pendingPOCount = purchaseOrders?.filter((o: any) => o.status === "PENDING_APPROVAL").length ?? 0;
+
+  useEffect(() => {
+    onClose();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
 
   return (
-    <aside className="w-64 shrink-0 bg-white border-r border-gray-200 h-screen sticky top-0 overflow-y-auto flex flex-col">
+    <>
+      {open && (
+        <div
+          className="fixed inset-0 z-30 bg-black/40 lg:hidden"
+          onClick={onClose}
+          aria-hidden="true"
+        />
+      )}
+      <aside
+        className={`w-64 shrink-0 bg-white border-r border-gray-100 h-screen overflow-y-auto flex flex-col
+          fixed inset-y-0 left-0 z-40 transform transition-transform duration-200
+          lg:static lg:sticky lg:top-0 lg:translate-x-0 lg:shadow-none
+          ${open ? "translate-x-0 shadow-xl" : "-translate-x-full"}`}
+      >
       <div className="px-5 py-5 flex items-center gap-2.5">
-        <div className="h-9 w-9 rounded-lg bg-brand-600 flex items-center justify-center shadow-soft shrink-0">
+        <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-brand-500 to-emerald-500 flex items-center justify-center shadow-soft shrink-0">
           <ShoppingBag className="h-5 w-5 text-white" strokeWidth={2.25} />
         </div>
         <div className="leading-tight">
@@ -96,16 +66,26 @@ export default function Sidebar() {
                 {items.map((item) => {
                   const active = pathname === item.href || pathname?.startsWith(item.href + "/");
                   const Icon = item.icon;
+                  const badge = item.href === "/purchasing" && pendingPOCount > 0 ? pendingPOCount : null;
                   return (
                     <Link
                       key={item.href}
                       href={item.href}
-                      className={`flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors ${
-                        active ? "bg-brand-50 text-brand-700 font-medium" : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                      className={`flex items-center gap-2.5 px-2.5 py-2 rounded-full text-sm transition-colors ${
+                        active ? "bg-brand-500 text-white font-medium shadow-nav" : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
                       }`}
                     >
-                      <Icon className={`h-4 w-4 shrink-0 ${active ? "text-brand-600" : "text-gray-400"}`} strokeWidth={2} />
+                      <Icon className={`h-4 w-4 shrink-0 ${active ? "text-white" : "text-gray-400"}`} strokeWidth={2} />
                       <span className="truncate">{item.label}</span>
+                      {badge && (
+                        <span
+                          className={`ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                            active ? "bg-white/25 text-white" : "bg-brand-500 text-white"
+                          }`}
+                        >
+                          {badge}
+                        </span>
+                      )}
                     </Link>
                   );
                 })}
@@ -114,6 +94,20 @@ export default function Sidebar() {
           );
         })}
       </nav>
-    </aside>
+
+      <div className="m-3 mt-0 p-3 rounded-2xl bg-brand-50 flex items-center gap-2.5">
+        <div className="h-9 w-9 rounded-full bg-brand-500 text-white flex items-center justify-center text-xs font-semibold shrink-0">
+          {initials(user?.name)}
+        </div>
+        <div className="text-sm leading-tight min-w-0">
+          <div className="font-semibold text-gray-900 truncate">{user?.name}</div>
+          <div className="text-[11px] text-gray-500 truncate">{user?.role}</div>
+        </div>
+        <button onClick={logout} className="ml-auto p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-white shrink-0" title="Keluar">
+          <Power className="h-4 w-4" />
+        </button>
+      </div>
+      </aside>
+    </>
   );
 }

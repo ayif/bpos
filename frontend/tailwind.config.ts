@@ -8,18 +8,31 @@ const config: Config = {
         sans: ["var(--font-inter)", "ui-sans-serif", "system-ui", "sans-serif"],
       },
       colors: {
-        // Refined indigo-leaning brand scale (was a flat 5-stop blue).
+        // Periwinkle-indigo brand scale (Modernize-style primary, was a
+        // deeper violet-indigo scale).
         brand: {
-          50: "#eef2ff",
-          100: "#e0e7ff",
-          200: "#c7d2fe",
-          300: "#a5b4fc",
-          400: "#818cf8",
-          500: "#6366f1",
-          600: "#4f46e5",
-          700: "#4338ca",
-          800: "#3730a3",
-          900: "#312e81",
+          50: "#eef3ff",
+          100: "#e0e9ff",
+          200: "#c7d7fe",
+          300: "#a3bdfd",
+          400: "#7f9dfc",
+          500: "#5d87ff",
+          600: "#3f68f0",
+          700: "#3151c9",
+          800: "#2a44a3",
+          900: "#253a82",
+        },
+        // Soft pastel stat-card backgrounds + matching icon colors, used
+        // only by the dashboard's four stat tiles.
+        stat: {
+          violetBg: "#ece9fd",
+          violetIc: "#7c6fe0",
+          skyBg: "#e3f5fc",
+          skyIc: "#2aa7d6",
+          amberBg: "#fcf1e0",
+          amberIc: "#e79a2e",
+          mintBg: "#e4f9ee",
+          mintIc: "#22b378",
         },
         // Cooler, more professional neutral scale, swapped in for the
         // default Tailwind `gray` so every existing text-gray-*/bg-gray-*
@@ -39,10 +52,13 @@ const config: Config = {
       },
       boxShadow: {
         soft: "0 1px 2px 0 rgb(15 23 42 / 0.04), 0 1px 3px 0 rgb(15 23 42 / 0.06)",
-        card: "0 1px 2px 0 rgb(15 23 42 / 0.03), 0 2px 8px -2px rgb(15 23 42 / 0.06)",
+        card: "0 1px 2px 0 rgb(30 41 82 / 0.03), 0 14px 32px -18px rgb(30 41 82 / 0.16)",
+        nav: "0 8px 18px -6px rgb(63 104 240 / 0.45)",
+        fab: "0 12px 24px -8px rgb(63 104 240 / 0.55)",
       },
       borderRadius: {
         xl: "0.875rem",
+        "2xl": "1.25rem",
       },
     },
   },

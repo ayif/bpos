@@ -18,9 +18,11 @@ export default function StockPage() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-xl font-semibold text-gray-900">Transfer & Stock Opname</h1>
-        <p className="text-sm text-gray-500">Kelola perpindahan stok antar cabang dan penyesuaian fisik.</p>
+      <div className="page-heading mb-0">
+        <div>
+          <h1 className="page-title">Transfer & Stock Opname</h1>
+          <p className="page-subtitle">Pantau pergerakan stok, transfer cabang, dan hasil opname.</p>
+        </div>
       </div>
       <TabBar
         value={tab}

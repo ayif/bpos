@@ -4,6 +4,7 @@ import { useState } from "react";
 import useSWR from "swr";
 import { api, ApiClientError } from "@/lib/api";
 import Modal from "@/components/Modal";
+import { Pencil, Power } from "lucide-react";
 
 const fetcher = (path: string) => api.get(path);
 
@@ -54,7 +55,12 @@ export default function UsersPage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-semibold">Manajemen Pengguna</h1>
+      <div className="page-heading mb-0">
+        <div>
+          <h1 className="page-title">Manajemen Pengguna</h1>
+          <p className="page-subtitle">Atur akun, peran, status, dan akses cabang.</p>
+        </div>
+      </div>
       <div className="grid md:grid-cols-3 gap-4">
         <div className="card space-y-2">
           <h3 className="font-medium text-sm">Pengguna Baru</h3>
@@ -94,7 +100,7 @@ export default function UsersPage() {
                 <th>Role</th>
                 <th>Cabang</th>
                 <th>Status</th>
-                <th></th>
+                <th>Aksi</th>
               </tr>
             </thead>
             <tbody>
@@ -106,16 +112,18 @@ export default function UsersPage() {
                   <td>{u.branches?.map((b: any) => b.branch?.name).join(", ")}</td>
                   <td>
                     <button
-                      className={`${u.isActive === false ? "badge-gray" : "badge-green"} hover:opacity-80 transition-opacity disabled:opacity-50`}
+                      className={`btn-action ${u.isActive === false ? "btn-action-neutral" : "btn-action-green"}`}
                       onClick={() => toggleStatus(u)}
                       disabled={togglingId === u.id}
                       title="Klik untuk mengubah status"
                     >
-                      {togglingId === u.id ? "..." : u.isActive === false ? "Nonaktif" : "Aktif"}
+                      <Power className="h-3.5 w-3.5" />
+                      {togglingId === u.id ? "Memproses" : u.isActive === false ? "Nonaktif" : "Aktif"}
                     </button>
                   </td>
                   <td>
-                    <button className="btn-secondary text-xs px-2.5 py-1" onClick={() => setEditingUser(u)}>
+                    <button className="btn-action btn-action-blue" onClick={() => setEditingUser(u)}>
+                      <Pencil className="h-3.5 w-3.5" />
                       Edit
                     </button>
                   </td>

@@ -2,11 +2,12 @@
 
 import { useState, useEffect, useMemo } from "react";
 import useSWR from "swr";
-import { api, ApiClientError } from "@/lib/api";
+import { api, ApiClientError, downloadFile } from "@/lib/api";
 import { formatCurrency } from "@/lib/format";
 import { useAuth } from "@/lib/auth-context";
 import TabBar from "@/components/TabBar";
 import { Search, Trash2, PackageSearch } from "lucide-react";
+import ProductImage from "@/components/ProductImage";
 
 const fetcher = (path: string) => api.get(path);
 
@@ -92,7 +93,14 @@ export default function PosPage() {
   const canRefund = can("pos.refund");
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
+      <div className="page-heading mb-0">
+        <div>
+          <h1 className="page-title">Kasir (POS)</h1>
+          <p className="page-subtitle">Pindai atau cari produk, lalu selesaikan pembayaran.</p>
+        </div>
+        {currentShift && <span className="badge-green">Shift berjalan</span>}
+      </div>
       {canRefund && (
         <TabBar
           value={tab}
@@ -123,10 +131,15 @@ export default function PosPage() {
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
           {productsData?.items?.map((p: any) => (
             <button key={p.id} onClick={() => addToCart(p)} className="card text-left hover:shadow-md hover:border-brand-200 transition-all">
-              <div className="font-medium text-sm text-gray-900">{p.name}</div>
-              <div className="text-xs text-gray-400">{p.sku}</div>
-              <div className="text-sm font-semibold text-brand-700 mt-1.5">{formatCurrency(p.sellPrice)}</div>
-              <div className="text-xs text-gray-400">Stok: {p.stocks?.[0]?.qty ?? 0}</div>
+              <div className="-mx-5 -mt-5 mb-3 overflow-hidden rounded-t-xl">
+                <ProductImage key={p.imageUrl ?? "empty"} src={p.imageUrl} name={p.name} className="h-28 w-full" iconClassName="h-8 w-8" />
+              </div>
+              <div className="font-semibold text-sm text-gray-900 line-clamp-2 min-h-10">{p.name}</div>
+              <div className="text-xs text-gray-400 mt-0.5">{p.sku}</div>
+              <div className="flex items-center justify-between gap-2 mt-2">
+                <div className="text-sm font-bold text-brand-700">{formatCurrency(p.sellPrice)}</div>
+                <span className="rounded-md bg-gray-100 px-2 py-1 text-[11px] text-gray-500">Stok {p.stocks?.[0]?.qty ?? 0}</span>
+              </div>
             </button>
           ))}
           {productsData?.items?.length === 0 && (
@@ -154,7 +167,12 @@ export default function PosPage() {
                 onChange={(e) => updateQty(l.productId, parseInt(e.target.value, 10) || 1)}
                 className="w-14 rounded-md border border-gray-300 px-1 py-1 text-center text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
               />
-              <button onClick={() => removeLine(l.productId)} className="text-red-500 hover:text-red-600 shrink-0">
+              <button
+                onClick={() => removeLine(l.productId)}
+                className="btn-action btn-action-red !p-1.5 shrink-0"
+                aria-label={`Hapus ${l.name} dari keranjang`}
+                title="Hapus dari keranjang"
+              >
                 <Trash2 className="h-4 w-4" />
               </button>
             </div>
@@ -224,14 +242,9 @@ export default function PosPage() {
         </button>
 
         {lastSale && (
-          <a
-            href={`${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api"}/pos/sales/${lastSale.id}/receipt.pdf`}
-            target="_blank"
-            rel="noreferrer"
-            className="btn-secondary w-full block text-center"
-          >
+          <button className="btn-secondary w-full" onClick={() => downloadFile(`/pos/sales/${lastSale.id}/receipt.pdf`, `struk-${lastSale.invoiceNo}.pdf`)}>
             Cetak Struk PDF
-          </a>
+          </button>
         )}
       </div>
         </div>

@@ -50,9 +50,11 @@ export default function PpobPage() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-xl font-semibold">PPOB & Pembayaran Digital</h1>
-        <p className="text-xs text-gray-500">Terintegrasi dengan Digiflazz (mode mock jika kredensial belum diatur).</p>
+      <div className="page-heading mb-0">
+        <div>
+          <h1 className="page-title">PPOB & Pembayaran Digital</h1>
+          <p className="page-subtitle">Kelola transaksi produk digital dan katalog provider. Mode mock/live mengikuti konfigurasi Digiflazz.</p>
+        </div>
       </div>
 
       {can("ppob.manage") && (

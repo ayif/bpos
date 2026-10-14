@@ -1,7 +1,7 @@
 import { formatCurrency } from "@/lib/format";
 
 const METHOD_LABEL: Record<string, string> = { CASH: "Cash", TRANSFER: "Transfer", QRIS: "QRIS" };
-const METHOD_COLOR: Record<string, string> = { CASH: "#5d87ff", TRANSFER: "#c7d7fe", QRIS: "#9bd6f7" };
+const METHOD_COLOR: Record<string, string> = { CASH: "#f97316", TRANSFER: "#fdba74", QRIS: "#38bdf8" };
 
 export default function PaymentDonut({ breakdown }: { breakdown: Record<string, number> }) {
   const total = Object.values(breakdown).reduce((s, v) => s + v, 0);

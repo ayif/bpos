@@ -2,10 +2,12 @@
 
 import { useState } from "react";
 import useSWR from "swr";
-import { api, ApiClientError } from "@/lib/api";
+import { api, ApiClientError, downloadFile } from "@/lib/api";
 import { formatCurrency } from "@/lib/format";
 import { useAuth } from "@/lib/auth-context";
 import Modal from "@/components/Modal";
+import { FolderCog, Pencil, Printer, Trash2 } from "lucide-react";
+import ProductImage from "@/components/ProductImage";
 
 const fetcher = (path: string) => api.get(path);
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api";
@@ -14,15 +16,26 @@ export default function ProductsPage() {
   const { can } = useAuth();
   const [q, setQ] = useState("");
   const [showForm, setShowForm] = useState(false);
+  const [showCategories, setShowCategories] = useState(false);
   const [editingProduct, setEditingProduct] = useState<any>(null);
+  const [printError, setPrintError] = useState<string | null>(null);
   const { data, mutate } = useSWR(`/products?q=${encodeURIComponent(q)}&pageSize=50`, fetcher);
-  const { data: categories } = useSWR("/products/categories", fetcher);
+  const { data: categories, mutate: mutateCategories } = useSWR("/products/categories", fetcher);
   const { data: units } = useSWR("/products/units", fetcher);
 
   async function handleDelete(product: any) {
     if (!window.confirm(`Hapus produk "${product.name}"?`)) return;
     await api.delete(`/products/${product.id}`);
     mutate();
+  }
+
+  async function handlePrintLabel(product: any) {
+    setPrintError(null);
+    try {
+      await downloadFile(`/products/labels/pdf?ids=${encodeURIComponent(product.id)}`, `label-${product.sku}.pdf`);
+    } catch (err) {
+      setPrintError(err instanceof ApiClientError ? err.message : "Gagal membuat label produk");
+    }
   }
 
   async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
@@ -43,12 +56,21 @@ export default function ProductsPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <h1 className="text-xl font-semibold">Produk & Stok</h1>
+      <div className="page-heading mb-0">
+        <div>
+          <h1 className="page-title">Produk & Stok</h1>
+          <p className="page-subtitle">Kelola katalog produk, harga, dan ketersediaan stok.</p>
+        </div>
         <div className="flex gap-2 flex-wrap">
-          <a href={`${API_URL}/products/export/excel`} target="_blank" rel="noreferrer" className="btn-secondary text-xs">
+          {can("product.manage") && (
+            <button className="btn-secondary text-xs inline-flex items-center gap-1.5" onClick={() => setShowCategories(true)}>
+              <FolderCog className="h-3.5 w-3.5" />
+              Kelola Kategori
+            </button>
+          )}
+          <button className="btn-secondary text-xs" onClick={() => downloadFile("/products/export/excel", "products.xlsx")}>
             Export Excel
-          </a>
+          </button>
           <label className="btn-secondary text-xs cursor-pointer">
             Import Excel
             <input type="file" accept=".xlsx" className="hidden" onChange={handleImport} />
@@ -61,37 +83,57 @@ export default function ProductsPage() {
 
       <input className="input max-w-sm" placeholder="Cari produk..." value={q} onChange={(e) => setQ(e.target.value)} />
 
+      {printError && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{printError}</div>}
+
       <div className="card overflow-x-auto min-w-0">
         <table className="table">
           <thead>
             <tr>
+              <th>Gambar</th>
               <th>SKU</th>
               <th>Nama</th>
               <th>Kategori</th>
               <th>Harga Jual</th>
               <th>Stok</th>
-              <th></th>
+              <th>Aksi</th>
             </tr>
           </thead>
           <tbody>
             {data?.items?.map((p: any) => (
               <tr key={p.id}>
+                <td><ProductImage key={p.imageUrl ?? "empty"} src={p.imageUrl} name={p.name} className="h-10 w-10 rounded-lg border border-gray-200" iconClassName="h-4 w-4" /></td>
                 <td>{p.sku}</td>
                 <td>{p.name}</td>
                 <td>{p.category?.name ?? "-"}</td>
                 <td>{formatCurrency(p.sellPrice)}</td>
                 <td>{p.stocks?.[0]?.qty ?? 0}</td>
                 <td>
-                  <div className="flex items-center gap-3">
-                    <a href={`${API_URL}/products/labels/pdf?ids=${p.id}`} target="_blank" rel="noreferrer" className="text-xs text-brand-600">
+                  <div className="flex items-center gap-1.5 whitespace-nowrap">
+                    <button
+                      className="btn-action btn-action-brand"
+                      onClick={() => handlePrintLabel(p)}
+                      disabled={!p.barcode}
+                      title={p.barcode ? `Cetak label ${p.name}` : "Isi barcode produk sebelum mencetak label"}
+                    >
+                      <Printer className="h-3.5 w-3.5" />
                       Cetak Label
-                    </a>
+                    </button>
                     {can("product.manage") && (
                       <>
-                        <button className="text-xs text-brand-600" onClick={() => setEditingProduct(p)}>
+                        <button
+                          className="btn-action btn-action-blue"
+                          onClick={() => setEditingProduct(p)}
+                          title={`Edit ${p.name}`}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
                           Edit
                         </button>
-                        <button className="text-xs text-red-600" onClick={() => handleDelete(p)}>
+                        <button
+                          className="btn-action btn-action-red"
+                          onClick={() => handleDelete(p)}
+                          title={`Hapus ${p.name}`}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
                           Hapus
                         </button>
                       </>
@@ -128,7 +170,132 @@ export default function ProductsPage() {
           }}
         />
       )}
+
+      {showCategories && (
+        <CategoryManagerModal
+          categories={categories ?? []}
+          onClose={() => setShowCategories(false)}
+          onChanged={() => {
+            mutateCategories();
+            mutate();
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+function CategoryManagerModal({ categories, onClose, onChanged }: { categories: any[]; onClose: () => void; onChanged: () => void }) {
+  const [name, setName] = useState("");
+  const [editing, setEditing] = useState<any>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function saveCategory(e: React.FormEvent) {
+    e.preventDefault();
+    const trimmedName = name.trim();
+    if (!trimmedName) return;
+    setBusy(true);
+    setError(null);
+    try {
+      if (editing) {
+        await api.put(`/products/categories/${editing.id}`, { name: trimmedName });
+      } else {
+        await api.post("/products/categories", { name: trimmedName });
+      }
+      setName("");
+      setEditing(null);
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : "Gagal menyimpan kategori");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function beginEdit(category: any) {
+    setEditing(category);
+    setName(category.name);
+    setError(null);
+  }
+
+  async function deleteCategory(category: any) {
+    const productCount = category._count?.products ?? 0;
+    const childCount = category._count?.children ?? 0;
+    const details = [
+      productCount ? `${productCount} produk akan menjadi tanpa kategori` : "produk yang terkait akan menjadi tanpa kategori",
+      childCount ? `${childCount} subkategori akan menjadi kategori utama` : "",
+    ].filter(Boolean).join(" dan ");
+    if (!window.confirm(`Hapus kategori “${category.name}”? ${details}.`)) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.delete(`/products/categories/${category.id}`);
+      if (editing?.id === category.id) {
+        setEditing(null);
+        setName("");
+      }
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : "Gagal menghapus kategori");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal title="Manajemen Kategori Produk" onClose={onClose} widthClass="max-w-2xl">
+      <div className="space-y-4">
+        <p className="text-sm text-gray-500">Tambah, ubah, atau hapus kategori yang digunakan pada katalog produk.</p>
+        <form onSubmit={saveCategory} className="flex flex-col sm:flex-row gap-2">
+          <input
+            autoFocus
+            className="input flex-1"
+            maxLength={100}
+            placeholder="Nama kategori, misalnya Minuman"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+          <button type="submit" className="btn-primary text-xs" disabled={busy || !name.trim()}>
+            {busy ? "Menyimpan..." : editing ? "Simpan Perubahan" : "+ Tambah Kategori"}
+          </button>
+          {editing && (
+            <button type="button" className="btn-secondary text-xs" onClick={() => { setEditing(null); setName(""); setError(null); }}>
+              Batal
+            </button>
+          )}
+        </form>
+        {error && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+        <div className="overflow-x-auto rounded-lg border border-gray-200">
+          <table className="table">
+            <thead>
+              <tr><th>Nama Kategori</th><th>Produk</th><th className="text-right">Aksi</th></tr>
+            </thead>
+            <tbody>
+              {categories.map((category) => (
+                <tr key={category.id}>
+                  <td className="font-medium">{category.name}</td>
+                  <td>{category._count?.products ?? 0} produk</td>
+                  <td>
+                    <div className="flex justify-end gap-1.5">
+                      <button className="btn-action btn-action-blue" disabled={busy} onClick={() => beginEdit(category)}>
+                        <Pencil className="h-3.5 w-3.5" /> Edit
+                      </button>
+                      <button className="btn-action btn-action-red" disabled={busy} onClick={() => deleteCategory(category)}>
+                        <Trash2 className="h-3.5 w-3.5" /> Hapus
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {categories.length === 0 && (
+                <tr><td colSpan={3} className="py-8 text-center text-sm text-gray-500">Belum ada kategori. Tambahkan kategori pertama di atas.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -138,6 +305,7 @@ function ProductFormModal({ product, categories, units, onClose, onSaved }: any)
     sku: string;
     barcode: string;
     name: string;
+    imageUrl: string;
     categoryId: string;
     unitId: string;
     sellPrice: number;
@@ -150,6 +318,7 @@ function ProductFormModal({ product, categories, units, onClose, onSaved }: any)
           sku: product.sku ?? "",
           barcode: product.barcode ?? "",
           name: product.name ?? "",
+          imageUrl: product.imageUrl ?? "",
           categoryId: product.categoryId ?? "",
           unitId: product.unitId ?? "",
           sellPrice: Number(product.sellPrice ?? 0),
@@ -161,6 +330,7 @@ function ProductFormModal({ product, categories, units, onClose, onSaved }: any)
           sku: "",
           barcode: "",
           name: "",
+          imageUrl: "",
           categoryId: "",
           unitId: "",
           sellPrice: 0,
@@ -183,6 +353,7 @@ function ProductFormModal({ product, categories, units, onClose, onSaved }: any)
         categoryId: form.categoryId || undefined,
         unitId: form.unitId || undefined,
         barcode: form.barcode || undefined,
+        imageUrl: form.imageUrl.trim(),
       };
       if (isEdit) {
         await api.put(`/products/${product.id}`, body);
@@ -203,6 +374,11 @@ function ProductFormModal({ product, categories, units, onClose, onSaved }: any)
         <input required className="input" placeholder="SKU" value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value })} />
         <input className="input" placeholder="Barcode" value={form.barcode} onChange={(e) => setForm({ ...form, barcode: e.target.value })} />
         <input required className="input" placeholder="Nama produk" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+        <div className="space-y-2">
+          <label className="label">URL Gambar Produk</label>
+          <input type="url" className="input" placeholder="https://contoh.com/gambar-produk.jpg" value={form.imageUrl} onChange={(e) => setForm({ ...form, imageUrl: e.target.value })} />
+          {form.imageUrl && <ProductImage key={form.imageUrl} src={form.imageUrl} name={form.name || "Preview produk"} className="h-24 w-24 rounded-xl border border-gray-200" />}
+        </div>
         <div className="grid grid-cols-2 gap-2">
           <select className="input" value={form.categoryId} onChange={(e) => setForm({ ...form, categoryId: e.target.value })}>
             <option value="">Kategori</option>

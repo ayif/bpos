@@ -7,6 +7,7 @@ import { formatCurrency } from "@/lib/format";
 import { useAuth } from "@/lib/auth-context";
 import TabBar from "@/components/TabBar";
 import Modal from "@/components/Modal";
+import { Check, Pencil, X } from "lucide-react";
 
 const PO_STATUS_STYLE: Record<string, string> = {
   PENDING_APPROVAL: "badge-amber",
@@ -31,9 +32,11 @@ export default function PurchasingPage() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-xl font-semibold text-gray-900">Pembelian & Supplier</h1>
-        <p className="text-sm text-gray-500">Kelola supplier, purchase order, dan penerimaan barang.</p>
+      <div className="page-heading mb-0">
+        <div>
+          <h1 className="page-title">Pembelian & Supplier</h1>
+          <p className="page-subtitle">Kelola supplier, purchase order, dan penerimaan barang.</p>
+        </div>
       </div>
       <TabBar
         value={tab}
@@ -97,7 +100,7 @@ function SupplierPanel({ suppliers, onSaved }: any) {
               <th>Nama</th>
               <th>Kontak</th>
               <th>Telepon</th>
-              <th></th>
+              <th>Aksi</th>
             </tr>
           </thead>
           <tbody>
@@ -108,7 +111,8 @@ function SupplierPanel({ suppliers, onSaved }: any) {
                 <td>{s.phone}</td>
                 <td>
                   {can("purchasing.manage") && (
-                    <button className="text-xs text-brand-600" onClick={() => setEditingSupplier(s)}>
+                    <button className="btn-action btn-action-blue" onClick={() => setEditingSupplier(s)}>
+                      <Pencil className="h-3.5 w-3.5" />
                       Edit
                     </button>
                   )}
@@ -268,19 +272,21 @@ function OrderPanel({ suppliers, products, orders, onSaved }: any) {
                 {can("purchasing.approve") && (
                   <td>
                     {o.status === "PENDING_APPROVAL" ? (
-                      <div className="flex gap-1">
+                      <div className="flex gap-1.5">
                         <button
-                          className="btn-secondary text-xs px-2 py-1"
+                          className="btn-action btn-action-green"
                           disabled={decidingId === o.id}
                           onClick={() => decide(o.id, "approve")}
                         >
+                          <Check className="h-3.5 w-3.5" />
                           Setujui
                         </button>
                         <button
-                          className="text-xs px-2 py-1 rounded-md bg-red-50 text-red-600 hover:bg-red-100"
+                          className="btn-action btn-action-red"
                           disabled={decidingId === o.id}
                           onClick={() => decide(o.id, "reject")}
                         >
+                          <X className="h-3.5 w-3.5" />
                           Tolak
                         </button>
                       </div>

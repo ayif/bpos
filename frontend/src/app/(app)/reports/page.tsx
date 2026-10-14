@@ -1,11 +1,10 @@
 "use client";
 
 import useSWR from "swr";
-import { api } from "@/lib/api";
+import { api, downloadFile } from "@/lib/api";
 import { formatCurrency, formatDate } from "@/lib/format";
 
 const fetcher = (path: string) => api.get(path);
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api";
 
 export default function ReportsPage() {
   const { data: sales } = useSWR("/reports/sales", fetcher);
@@ -13,18 +12,21 @@ export default function ReportsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Laporan & Analitik</h1>
-        <div className="flex gap-2">
-          <a className="btn-secondary text-xs" href={`${API_URL}/reports/sales/export.csv`} target="_blank" rel="noreferrer">
+      <div className="page-heading mb-0">
+        <div>
+          <h1 className="page-title">Laporan & Analitik</h1>
+          <p className="page-subtitle">Pantau penjualan, laba kotor, dan produk terlaris.</p>
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          <button className="btn-secondary text-xs" onClick={() => downloadFile("/reports/sales/export.csv", "sales-report.csv")}>
             Export CSV
-          </a>
-          <a className="btn-secondary text-xs" href={`${API_URL}/reports/sales/export.xlsx`} target="_blank" rel="noreferrer">
+          </button>
+          <button className="btn-secondary text-xs" onClick={() => downloadFile("/reports/sales/export.xlsx", "sales-report.xlsx")}>
             Export Excel
-          </a>
-          <a className="btn-secondary text-xs" href={`${API_URL}/reports/sales/export.pdf`} target="_blank" rel="noreferrer">
+          </button>
+          <button className="btn-secondary text-xs" onClick={() => downloadFile("/reports/sales/export.pdf", "sales-report.pdf")}>
             Export PDF
-          </a>
+          </button>
         </div>
       </div>
 

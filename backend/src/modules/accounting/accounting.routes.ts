@@ -7,6 +7,12 @@ import { ACCOUNT_CODES } from "@/modules/accounting/accounting.service";
 
 const CREDIT_NORMAL_TYPES = new Set(["LIABILITY", "EQUITY", "REVENUE"]);
 
+function rangeEnd(value: string) {
+  const date = new Date(value);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) date.setUTCHours(23, 59, 59, 999);
+  return date;
+}
+
 export const accountingRouter = Router();
 accountingRouter.use(authenticate);
 
@@ -32,7 +38,7 @@ accountingRouter.get("/journal-entries", requirePermission("accounting.view"), a
   const where: any = { ...branchScope(req, branchId) };
   if (from || to) where.createdAt = {};
   if (from) where.createdAt.gte = new Date(from);
-  if (to) where.createdAt.lte = new Date(to);
+  if (to) where.createdAt.lte = rangeEnd(to);
 
   const entries = await prisma.journalEntry.findMany({
     where,
@@ -51,7 +57,7 @@ async function trialBalance(req: Request, from?: string, to?: string, branchId?:
   if (from || to) {
     where.entry = { ...(where.entry ?? {}), createdAt: {} };
     if (from) where.entry.createdAt.gte = new Date(from);
-    if (to) where.entry.createdAt.lte = new Date(to);
+    if (to) where.entry.createdAt.lte = rangeEnd(to);
   }
 
   const lines = await prisma.journalLine.findMany({ where, include: { account: true } });
@@ -130,7 +136,7 @@ accountingRouter.get("/reports/cash-flow", requirePermission("accounting.view"),
   if (from || to) {
     where.entry = { ...(where.entry ?? {}), createdAt: {} };
     if (from) where.entry.createdAt.gte = new Date(from);
-    if (to) where.entry.createdAt.lte = new Date(to);
+    if (to) where.entry.createdAt.lte = rangeEnd(to);
   }
 
   const lines = await prisma.journalLine.findMany({
@@ -187,7 +193,7 @@ accountingRouter.get("/reports/general-ledger", requirePermission("accounting.vi
   if (from || to) {
     rangeWhere.entry = { ...(rangeWhere.entry ?? {}), createdAt: {} };
     if (from) rangeWhere.entry.createdAt.gte = new Date(from);
-    if (to) rangeWhere.entry.createdAt.lte = new Date(to);
+    if (to) rangeWhere.entry.createdAt.lte = rangeEnd(to);
   }
 
   const lines = await prisma.journalLine.findMany({
@@ -237,7 +243,7 @@ accountingRouter.get("/reports/tax-report", requirePermission("accounting.view")
   if (from || to) {
     where.entry = { ...(where.entry ?? {}), createdAt: {} };
     if (from) where.entry.createdAt.gte = new Date(from);
-    if (to) where.entry.createdAt.lte = new Date(to);
+    if (to) where.entry.createdAt.lte = rangeEnd(to);
   }
 
   const lines = await prisma.journalLine.findMany({

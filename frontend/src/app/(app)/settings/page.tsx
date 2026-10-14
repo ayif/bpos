@@ -42,7 +42,12 @@ export default function SettingsPage() {
 
   return (
     <div className="space-y-4 max-w-xl">
-      <h1 className="text-xl font-semibold">Pengaturan</h1>
+      <div className="page-heading mb-0">
+        <div>
+          <h1 className="page-title">Pengaturan Toko</h1>
+          <p className="page-subtitle">Identitas toko, pajak, struk, dan loyalty.</p>
+        </div>
+      </div>
       <div className="card space-y-3">
         <div>
           <label className="block text-xs text-gray-500 mb-1">Nama Toko</label>

@@ -39,7 +39,12 @@ export default function ExpensesPage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-semibold">Pengeluaran (Expense)</h1>
+      <div className="page-heading mb-0">
+        <div>
+          <h1 className="page-title">Pengeluaran</h1>
+          <p className="page-subtitle">Catat biaya operasional dan kelompokkan berdasarkan kategori.</p>
+        </div>
+      </div>
       <div className="grid md:grid-cols-3 gap-4">
         <div className="card space-y-2">
           <h3 className="font-medium text-sm">Pengeluaran Baru</h3>

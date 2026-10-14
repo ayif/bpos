@@ -5,6 +5,7 @@ import useSWR from "swr";
 import { api, ApiClientError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import Modal from "@/components/Modal";
+import { Pencil } from "lucide-react";
 
 const fetcher = (path: string) => api.get(path);
 
@@ -33,7 +34,12 @@ export default function BranchesPage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-semibold">Manajemen Cabang</h1>
+      <div className="page-heading mb-0">
+        <div>
+          <h1 className="page-title">Manajemen Cabang</h1>
+          <p className="page-subtitle">Atur lokasi toko dan informasi tiap cabang.</p>
+        </div>
+      </div>
       <div className="grid md:grid-cols-3 gap-4">
         <div className="card space-y-2">
           <h3 className="font-medium text-sm">Cabang Baru</h3>
@@ -54,7 +60,7 @@ export default function BranchesPage() {
                 <th>Nama</th>
                 <th>Alamat</th>
                 <th>Status</th>
-                <th></th>
+                <th>Aksi</th>
               </tr>
             </thead>
             <tbody>
@@ -66,7 +72,8 @@ export default function BranchesPage() {
                   <td>{b.isActive ? "Aktif" : "Nonaktif"}</td>
                   <td>
                     {can("branch.manage") && (
-                      <button className="text-xs text-brand-600" onClick={() => setEditingBranch(b)}>
+                      <button className="btn-action btn-action-blue" onClick={() => setEditingBranch(b)}>
+                        <Pencil className="h-3.5 w-3.5" />
                         Edit
                       </button>
                     )}

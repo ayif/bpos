@@ -38,7 +38,12 @@ export default function ShiftPage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-semibold">Shift Kasir</h1>
+      <div className="page-heading mb-0">
+        <div>
+          <h1 className="page-title">Shift Kasir</h1>
+          <p className="page-subtitle">Kelola kas awal, penutupan shift, dan selisih kas.</p>
+        </div>
+      </div>
 
       <div className="card space-y-2 max-w-sm">
         {!current ? (

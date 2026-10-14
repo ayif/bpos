@@ -14,12 +14,37 @@ const upload = multer({ storage: multer.memoryStorage() });
 
 // ---- Categories ----
 productsRouter.get("/categories", requirePermission("product.view"), async (_req, res) => {
-  res.json(await prisma.category.findMany({ orderBy: { name: "asc" } }));
+	res.json(await prisma.category.findMany({
+		orderBy: { name: "asc" },
+		include: { _count: { select: { products: true, children: true } } },
+	}));
 });
 
 productsRouter.post("/categories", requirePermission("product.manage"), async (req, res) => {
-  const body = z.object({ name: z.string().min(1), parentId: z.string().optional() }).parse(req.body);
-  res.status(201).json(await prisma.category.create({ data: body }));
+	const body = z.object({ name: z.string().trim().min(1).max(100), parentId: z.string().optional() }).parse(req.body);
+	const existing = await prisma.category.findFirst({ where: { name: { equals: body.name, mode: "insensitive" } } });
+	if (existing) throw ApiError.conflict("Kategori dengan nama tersebut sudah ada");
+	res.status(201).json(await prisma.category.create({ data: { ...body, parentId: body.parentId || null } }));
+});
+
+productsRouter.put("/categories/:id", requirePermission("product.manage"), async (req, res) => {
+	const body = z.object({ name: z.string().trim().min(1).max(100) }).parse(req.body);
+	const existing = await prisma.category.findFirst({
+		where: { name: { equals: body.name, mode: "insensitive" }, id: { not: req.params.id } },
+	});
+	if (existing) throw ApiError.conflict("Kategori dengan nama tersebut sudah ada");
+	const category = await prisma.category.update({ where: { id: req.params.id }, data: body });
+	res.json(category);
+});
+
+productsRouter.delete("/categories/:id", requirePermission("product.manage"), async (req, res) => {
+	await prisma.$transaction(async (tx) => {
+		// Keep products and child categories when their category is removed.
+		await tx.product.updateMany({ where: { categoryId: req.params.id }, data: { categoryId: null } });
+		await tx.category.updateMany({ where: { parentId: req.params.id }, data: { parentId: null } });
+		await tx.category.delete({ where: { id: req.params.id } });
+	});
+	res.status(204).send();
 });
 
 // ---- Units ----
@@ -228,10 +253,18 @@ productsRouter.post("/import/excel", resolveBranch, requirePermission("product.m
 productsRouter.get("/labels/pdf", requirePermission("product.view"), async (req, res) => {
   const { ids, copies = "1" } = req.query as Record<string, string>;
   if (!ids) throw ApiError.badRequest("Provide ?ids=comma,separated,product,ids");
-  const productIds = ids.split(",").filter(Boolean);
+  const productIds = [...new Set(ids.split(",").map((id) => id.trim()).filter(Boolean))];
+  if (productIds.length === 0) throw ApiError.badRequest("Provide at least one product id");
   const copiesPerProduct = Math.max(1, Math.min(parseInt(copies, 10) || 1, 50));
 
   const products = await prisma.product.findMany({ where: { id: { in: productIds } } });
+  if (products.length !== productIds.length) throw ApiError.notFound("One or more products were not found");
+
+  const withoutBarcode = products.filter((product) => !product.barcode);
+  if (withoutBarcode.length > 0) {
+    const names = withoutBarcode.map((product) => product.name).join(", ");
+    throw ApiError.badRequest(`Barcode belum diisi untuk produk: ${names}`);
+  }
 
   const bwipjs = await import("bwip-js");
   const PDFDocumentCtor = (await import("pdfkit")).default;

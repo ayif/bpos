@@ -5,6 +5,7 @@ import useSWR from "swr";
 import { api, ApiClientError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import Modal from "@/components/Modal";
+import { Eye } from "lucide-react";
 
 const fetcher = (path: string) => api.get(path);
 
@@ -33,7 +34,12 @@ export default function CustomersPage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-semibold">Pelanggan & Loyalty</h1>
+      <div className="page-heading mb-0">
+        <div>
+          <h1 className="page-title">Pelanggan & Loyalty</h1>
+          <p className="page-subtitle">Kelola profil pelanggan, poin, dan tingkat harga.</p>
+        </div>
+      </div>
       <div className="grid md:grid-cols-3 gap-4">
         <div className="card space-y-2">
           <h3 className="font-medium text-sm">Pelanggan Baru</h3>
@@ -53,7 +59,7 @@ export default function CustomersPage() {
                 <th>HP</th>
                 <th>Poin</th>
                 <th>Price Level</th>
-                <th></th>
+                <th>Aksi</th>
               </tr>
             </thead>
             <tbody>
@@ -64,7 +70,8 @@ export default function CustomersPage() {
                   <td>{c.points}</td>
                   <td>{c.priceLevel?.name ?? "Retail"}</td>
                   <td>
-                    <button className="text-xs text-brand-600" onClick={() => setSelectedId(c.id)}>
+                    <button className="btn-action btn-action-neutral" onClick={() => setSelectedId(c.id)}>
+                      <Eye className="h-3.5 w-3.5" />
                       Detail
                     </button>
                   </td>

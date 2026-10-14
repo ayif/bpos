@@ -8,19 +8,18 @@ const config: Config = {
         sans: ["var(--font-inter)", "ui-sans-serif", "system-ui", "sans-serif"],
       },
       colors: {
-        // Periwinkle-indigo brand scale (Modernize-style primary, was a
-        // deeper violet-indigo scale).
+        // Warm restaurant-inspired orange brand scale.
         brand: {
-          50: "#eef3ff",
-          100: "#e0e9ff",
-          200: "#c7d7fe",
-          300: "#a3bdfd",
-          400: "#7f9dfc",
-          500: "#5d87ff",
-          600: "#3f68f0",
-          700: "#3151c9",
-          800: "#2a44a3",
-          900: "#253a82",
+          50: "#fff7ed",
+          100: "#ffedd5",
+          200: "#fed7aa",
+          300: "#fdba74",
+          400: "#fb923c",
+          500: "#f97316",
+          600: "#ea580c",
+          700: "#c2410c",
+          800: "#9a3412",
+          900: "#7c2d12",
         },
         // Soft pastel stat-card backgrounds + matching icon colors, used
         // only by the dashboard's four stat tiles.
@@ -52,9 +51,9 @@ const config: Config = {
       },
       boxShadow: {
         soft: "0 1px 2px 0 rgb(15 23 42 / 0.04), 0 1px 3px 0 rgb(15 23 42 / 0.06)",
-        card: "0 1px 2px 0 rgb(30 41 82 / 0.03), 0 14px 32px -18px rgb(30 41 82 / 0.16)",
-        nav: "0 8px 18px -6px rgb(63 104 240 / 0.45)",
-        fab: "0 12px 24px -8px rgb(63 104 240 / 0.55)",
+        card: "0 2px 10px -4px rgb(15 23 42 / 0.09)",
+        nav: "0 5px 12px -5px rgb(249 115 22 / 0.38)",
+        fab: "0 12px 24px -8px rgb(249 115 22 / 0.48)",
       },
       borderRadius: {
         xl: "0.875rem",

@@ -163,42 +163,83 @@ posRouter.get("/sales/:id", requirePermission("pos.view"), async (req, res) => {
 posRouter.get("/sales/:id/receipt.pdf", requirePermission("pos.view"), async (req, res) => {
   const sale = await prisma.sale.findUnique({
     where: { id: req.params.id },
-    include: { items: { include: { product: true } }, payments: true, branch: true, customer: true },
+    include: { items: { include: { product: true } }, payments: true, branch: true, customer: true, cashier: true },
   });
   if (!sale) throw ApiError.notFound("Sale not found");
   if (sale.branchId !== req.branchId) throw ApiError.forbidden("You do not have access to this branch");
 
-  const setting = await prisma.storeSetting.findFirst({ where: { branchId: sale.branchId } });
-  const width = setting?.receiptSize === "80mm" ? 227 : setting?.receiptSize === "A4" ? 595 : 164;
+  const setting =
+    (await prisma.storeSetting.findUnique({ where: { branchId: sale.branchId } })) ??
+    (await prisma.storeSetting.findFirst({ where: { branchId: null } }));
+  const isA4 = setting?.receiptSize === "A4";
+  const width = setting?.receiptSize === "80mm" ? 227 : isA4 ? 595 : 164;
+  const margin = isA4 ? 36 : 10;
+  const contentWidth = width - margin * 2;
+  const fontSize = isA4 ? 10 : 8;
+  const estimatedLines = (text: string, size = fontSize) =>
+    Math.max(1, Math.ceil(Array.from(text).length / Math.max(1, Math.floor(contentWidth / (size * 0.6)))));
+  const itemHeight = sale.items.reduce((height, item) => height + estimatedLines(item.product.name, fontSize) * (fontSize + 3) + 24, 0);
+  const headerHeight =
+    estimatedLines(setting?.storeName ?? "BPOS Store", isA4 ? 18 : 11) * (isA4 ? 23 : 14) +
+    estimatedLines(sale.branch.name) * (fontSize + 3) +
+    (setting?.address ?? sale.branch.address ? estimatedLines((setting?.address ?? sale.branch.address)!) * (fontSize + 3) : 0) +
+    (setting?.phone ?? sale.branch.phone ? fontSize + 3 : 0);
+  const pageHeight = Math.max(isA4 ? 842 : 400, margin * 2 + headerHeight + 150 + itemHeight + sale.payments.length * (fontSize + 5));
 
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", `inline; filename=${sale.invoiceNo}.pdf`);
 
-  const doc = new PDFDocument({ size: [width, 700], margin: 10 });
+  const doc = new PDFDocument({ size: [width, pageHeight], margin });
   doc.pipe(res);
 
-  doc.fontSize(10).text(setting?.storeName ?? "BPOS Store", { align: "center" });
-  doc.fontSize(8).text(sale.branch.name, { align: "center" });
-  doc.moveDown(0.5);
-  doc.text(`Invoice: ${sale.invoiceNo}`);
-  doc.text(`Tanggal: ${sale.createdAt.toLocaleString("id-ID")}`);
-  if (sale.customer) doc.text(`Pelanggan: ${sale.customer.name}`);
-  doc.moveDown(0.5);
+  const formatAmount = (amount: number | string | { toString(): string }) => `Rp ${Number(amount).toLocaleString("id-ID")}`;
+  const separator = () => {
+    const y = doc.y + 5;
+    doc.save().lineWidth(0.7).dash(2, { space: 3 }).moveTo(margin, y).lineTo(width - margin, y).stroke().restore();
+    doc.y = y + 10;
+  };
+  const row = (label: string, value: string, options: { bold?: boolean; size?: number } = {}) => {
+    const size = options.size ?? fontSize;
+    doc.font(options.bold ? "Helvetica-Bold" : "Helvetica").fontSize(size);
+    const y = doc.y;
+    const valueWidth = doc.widthOfString(value);
+    doc.text(label, margin, y, { width: contentWidth - valueWidth - 8 });
+    doc.text(value, width - margin - valueWidth, y, { lineBreak: false });
+    doc.y = y + Math.max(doc.heightOfString(label, { width: contentWidth - valueWidth - 8 }), size + 3) + 2;
+  };
+
+  doc.font("Helvetica-Bold").fontSize(isA4 ? 18 : 11).text(setting?.storeName ?? "BPOS Store", { align: "center" });
+  doc.font("Helvetica").fontSize(fontSize).text(sale.branch.name, { align: "center" });
+  const address = setting?.address ?? sale.branch.address;
+  const phone = setting?.phone ?? sale.branch.phone;
+  if (address) doc.text(address, { align: "center" });
+  if (phone) doc.text(phone, { align: "center" });
+
+  separator();
+  row("No. Transaksi", sale.invoiceNo);
+  row("Tanggal", sale.createdAt.toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" }));
+  row("Kasir", sale.cashier.name);
+  if (sale.customer) row("Pelanggan", sale.customer.name);
+  separator();
 
   sale.items.forEach((item) => {
-    doc.text(`${item.product.name}`);
-    doc.text(`  ${item.qty} x ${Number(item.unitPrice).toLocaleString("id-ID")} = ${Number(item.lineTotal).toLocaleString("id-ID")}`);
+    doc.font("Helvetica-Bold").fontSize(fontSize).text(item.product.name, { width: contentWidth });
+    row(`${item.qty} x ${formatAmount(item.unitPrice)}`, formatAmount(item.lineTotal));
+    if (Number(item.discount) > 0) row("Diskon item", `- ${formatAmount(item.discount)}`);
   });
 
-  doc.moveDown(0.5);
-  doc.text(`Subtotal: ${Number(sale.subtotal).toLocaleString("id-ID")}`);
-  doc.text(`Diskon: ${Number(sale.discountTotal).toLocaleString("id-ID")}`);
-  doc.text(`Pajak: ${Number(sale.taxTotal).toLocaleString("id-ID")}`);
-  doc.fontSize(10).text(`Total: ${Number(sale.grandTotal).toLocaleString("id-ID")}`);
-  doc.fontSize(8).text(`Bayar: ${Number(sale.paidTotal).toLocaleString("id-ID")}`);
-  doc.text(`Kembali: ${Number(sale.changeTotal).toLocaleString("id-ID")}`);
-  doc.moveDown(0.5);
-  doc.text("Terima kasih atas kunjungan Anda", { align: "center" });
+  separator();
+  row("Subtotal", formatAmount(sale.subtotal));
+  if (Number(sale.discountTotal) > 0) row("Diskon", `- ${formatAmount(sale.discountTotal)}`);
+  if (Number(sale.taxTotal) > 0) row("Pajak", formatAmount(sale.taxTotal));
+  separator();
+  row("TOTAL", formatAmount(sale.grandTotal), { bold: true, size: isA4 ? 14 : 10 });
+  sale.payments.forEach((payment) => row(`Bayar (${payment.method})`, formatAmount(payment.amount)));
+  if (Number(sale.changeTotal) > 0) row("Kembalian", formatAmount(sale.changeTotal));
+  separator();
+  doc.font("Helvetica").fontSize(fontSize).text("Terima kasih atas kunjungan Anda", { align: "center" });
+  doc.moveDown(0.3);
+  doc.fontSize(isA4 ? 8 : 7).fillColor("#64748b").text("Simpan struk ini sebagai bukti pembayaran.", { align: "center" });
 
   doc.end();
 });

@@ -6,6 +6,7 @@ import { api, ApiClientError } from "@/lib/api";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { useAuth } from "@/lib/auth-context";
 import TabBar from "@/components/TabBar";
+import { RefreshCw } from "lucide-react";
 
 const fetcher = (path: string) => api.get(path);
 
@@ -131,6 +132,24 @@ function PpobCatalogPanel({ products, onSaved }: { products: any[]; onSaved: () 
   const [form, setForm] = useState({ buyerSkuCode: "", productName: "", category: "", brand: "", price: 0 });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [syncBusy, setSyncBusy] = useState(false);
+
+  async function syncCatalog() {
+    setSyncError(null);
+    setSyncMessage(null);
+    setSyncBusy(true);
+    try {
+      const result = await api.post<{ synced: number; active: number }>("/ppob/products/sync");
+      onSaved();
+      setSyncMessage(`${result.synced} produk disinkronkan; ${result.active} produk aktif.`);
+    } catch (err) {
+      setSyncError(err instanceof ApiClientError ? err.message : "Gagal menyinkronkan katalog Digiflazz");
+    } finally {
+      setSyncBusy(false);
+    }
+  }
 
   async function submit() {
     if (!form.buyerSkuCode || !form.productName || !form.category) return;
@@ -149,6 +168,18 @@ function PpobCatalogPanel({ products, onSaved }: { products: any[]; onSaved: () 
 
   return (
     <div className="grid md:grid-cols-2 gap-4">
+      <div className="card flex flex-col items-start gap-2 md:col-span-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h3 className="font-medium text-sm">Sinkronisasi Harga Digiflazz</h3>
+          <p className="text-xs text-gray-500 mt-1">Ambil katalog harga prepaid terbaru dari akun Digiflazz Anda.</p>
+          {syncError && <p role="alert" className="text-xs text-red-600 mt-2">{syncError}</p>}
+          {syncMessage && <p role="status" className="text-xs text-green-700 mt-2">{syncMessage}</p>}
+        </div>
+        <button type="button" className="btn-secondary shrink-0" onClick={syncCatalog} disabled={syncBusy}>
+          <RefreshCw className={`h-4 w-4 ${syncBusy ? "animate-spin" : ""}`} aria-hidden="true" />
+          {syncBusy ? "Menyinkronkan..." : "Sinkronkan Harga"}
+        </button>
+      </div>
       <div className="card space-y-2">
         <h3 className="font-medium text-sm">Produk PPOB Baru</h3>
         <input className="input" placeholder="Kode SKU" value={form.buyerSkuCode} onChange={(e) => setForm({ ...form, buyerSkuCode: e.target.value })} />

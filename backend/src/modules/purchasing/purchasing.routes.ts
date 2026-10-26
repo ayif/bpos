@@ -6,6 +6,7 @@ import { generateCode } from "@/utils/codes";
 import { receiveStock } from "@/modules/stock/stock.service";
 import { postPurchaseJournal } from "@/modules/accounting/accounting.service";
 import { ApiError } from "@/utils/errors";
+import { calculateReorder } from "./reorder.calc";
 
 export const purchasingRouter = Router();
 purchasingRouter.use(authenticate);
@@ -60,6 +61,80 @@ purchasingRouter.get("/purchase-orders", resolveBranch, requirePermission("purch
     take: 100,
   });
   res.json(pos);
+});
+
+purchasingRouter.get("/reorder-suggestions", resolveBranch, requirePermission("purchasing.view"), async (req, res) => {
+  const query = z
+    .object({
+      days: z.coerce.number().int().min(7).max(180).default(30),
+      coverDays: z.coerce.number().int().min(1).max(90).default(14),
+    })
+    .parse(req.query);
+  const branchId = req.branchId!;
+  const since = new Date();
+  since.setDate(since.getDate() - query.days);
+
+  const [products, soldItems] = await Promise.all([
+    prisma.product.findMany({
+      where: { isActive: true },
+      include: {
+        category: true,
+        stocks: { where: { branchId } },
+      },
+      orderBy: { name: "asc" },
+    }),
+    prisma.saleItem.findMany({
+      where: {
+        sale: {
+          branchId,
+          createdAt: { gte: since },
+          status: "COMPLETED",
+        },
+      },
+      select: { productId: true, qty: true },
+    }),
+  ]);
+
+  const soldByProduct = new Map<string, number>();
+  for (const item of soldItems) {
+    soldByProduct.set(item.productId, (soldByProduct.get(item.productId) ?? 0) + item.qty);
+  }
+
+  const suggestions = products
+    .map((product) => {
+      const currentStock = product.stocks[0]?.qty ?? 0;
+      const soldQty = soldByProduct.get(product.id) ?? 0;
+      const recommendation = calculateReorder({
+        soldQty,
+        currentStock,
+        minStock: product.minStock,
+        historyDays: query.days,
+        coverDays: query.coverDays,
+      });
+
+      return {
+        productId: product.id,
+        sku: product.sku,
+        name: product.name,
+        category: product.category?.name ?? null,
+        currentStock,
+        minStock: product.minStock,
+        soldQty,
+        averageDailySales: recommendation.averageDailySales,
+        targetStock: recommendation.targetStock,
+        recommendedQty: recommendation.recommendedQty,
+        unitCost: Number(product.costPrice),
+      };
+    })
+    .filter((product) => product.recommendedQty > 0);
+
+  res.json({
+    branchId,
+    historyDays: query.days,
+    coverDays: query.coverDays,
+    generatedAt: new Date(),
+    items: suggestions,
+  });
 });
 
 // ---- PO Approval (single-level: BRANCH_MANAGER/OWNER/SUPER_ADMIN via purchasing.approve) ----

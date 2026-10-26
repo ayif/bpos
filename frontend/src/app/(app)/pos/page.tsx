@@ -6,8 +6,9 @@ import { api, ApiClientError, downloadFile } from "@/lib/api";
 import { formatCurrency } from "@/lib/format";
 import { useAuth } from "@/lib/auth-context";
 import TabBar from "@/components/TabBar";
-import { Search, Trash2, PackageSearch } from "lucide-react";
+import { Search, Trash2, PackageSearch, CheckCircle2 } from "lucide-react";
 import ProductImage from "@/components/ProductImage";
+import Modal from "@/components/Modal";
 
 const fetcher = (path: string) => api.get(path);
 
@@ -29,6 +30,9 @@ export default function PosPage() {
   const [paymentMethod, setPaymentMethod] = useState<"CASH" | "TRANSFER" | "QRIS">("CASH");
   const [paidAmount, setPaidAmount] = useState(0);
   const [message, setMessage] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [showConfirmation, setShowConfirmation] = useState(false);
+  const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [lastSale, setLastSale] = useState<any>(null);
 
   const { data: productsData } = useSWR(`/products?q=${encodeURIComponent(query)}&pageSize=20`, fetcher);
@@ -57,8 +61,9 @@ export default function PosPage() {
     setCart((prev) => prev.filter((l) => l.productId !== productId));
   }
 
-  async function handleCheckout() {
+  function requestCheckout() {
     setMessage(null);
+    setSuccessMessage(null);
     if (cart.length === 0) {
       setMessage("Keranjang masih kosong");
       return;
@@ -67,6 +72,12 @@ export default function PosPage() {
       setMessage("Jumlah bayar kurang dari total");
       return;
     }
+    setShowConfirmation(true);
+  }
+
+  async function handleCheckout() {
+    setMessage(null);
+    setIsCheckingOut(true);
     try {
       const sale = await api.post("/pos/sales", {
         customerId: customerId || undefined,
@@ -80,9 +91,13 @@ export default function PosPage() {
       setDiscountTotal(0);
       setPaidAmount(0);
       setCustomerId("");
-      setMessage(`Transaksi ${sale.invoiceNo} berhasil.`);
+      setShowConfirmation(false);
+      setSuccessMessage(`Transaksi ${sale.invoiceNo} berhasil diselesaikan.`);
     } catch (err) {
+      setShowConfirmation(false);
       setMessage(err instanceof ApiClientError ? err.message : "Gagal memproses transaksi");
+    } finally {
+      setIsCheckingOut(false);
     }
   }
 
@@ -110,6 +125,43 @@ export default function PosPage() {
             { value: "retur", label: "Retur" },
           ]}
         />
+      )}
+
+      {showConfirmation && (
+        <Modal title="Confirmation" onClose={() => !isCheckingOut && setShowConfirmation(false)}>
+          <div role="alertdialog" aria-labelledby="checkout-confirmation" className="space-y-5">
+            <p id="checkout-confirmation" className="text-sm text-gray-600">
+              Apakah anda yakin memproses transaksi ini?
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                className="btn-secondary min-w-24"
+                onClick={() => setShowConfirmation(false)}
+                disabled={isCheckingOut}
+              >
+                No
+              </button>
+              <button type="button" className="btn-primary min-w-24" onClick={handleCheckout} disabled={isCheckingOut}>
+                {isCheckingOut ? "Memproses..." : "Yes"}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {successMessage && (
+        <Modal title="Transaksi Berhasil" onClose={() => setSuccessMessage(null)}>
+          <div role="status" aria-live="polite" className="flex flex-col items-center gap-3 py-4 text-center">
+            <div className="success-checkmark rounded-full bg-green-100 p-3">
+              <CheckCircle2 className="h-12 w-12 text-green-600" aria-hidden="true" />
+            </div>
+            <p className="text-sm font-medium text-gray-700">{successMessage}</p>
+            <button type="button" className="btn-primary w-full" onClick={() => setSuccessMessage(null)}>
+              Selesai
+            </button>
+          </div>
+        </Modal>
       )}
 
       {tab === "retur" && canRefund ? (
@@ -237,7 +289,7 @@ export default function PosPage() {
 
         {message && <p className="text-xs text-brand-700 bg-brand-50 rounded-md px-2.5 py-1.5">{message}</p>}
 
-        <button onClick={handleCheckout} className="btn-primary w-full">
+        <button onClick={requestCheckout} className="btn-primary w-full">
           Bayar
         </button>
 

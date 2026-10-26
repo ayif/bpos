@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import useSWR from "swr";
 import { api, ApiClientError } from "@/lib/api";
 import { formatCurrency } from "@/lib/format";
@@ -24,7 +24,7 @@ function PoStatusBadge({ status }: { status: string }) {
 const fetcher = (path: string) => api.get(path);
 
 export default function PurchasingPage() {
-  const [tab, setTab] = useState<"suppliers" | "orders" | "receipts">("orders");
+  const [tab, setTab] = useState<"suppliers" | "orders" | "receipts" | "restock">("orders");
   const { data: suppliers, mutate: mutateSuppliers } = useSWR("/purchasing/suppliers", fetcher);
   const { data: products } = useSWR("/products?pageSize=100", fetcher);
   const { data: orders, mutate: mutateOrders } = useSWR("/purchasing/purchase-orders", fetcher);
@@ -45,6 +45,7 @@ export default function PurchasingPage() {
           { value: "suppliers", label: "Supplier" },
           { value: "orders", label: "Purchase Order" },
           { value: "receipts", label: "Penerimaan Barang" },
+          { value: "restock", label: "Saran Restock" },
         ]}
       />
 
@@ -55,6 +56,203 @@ export default function PurchasingPage() {
       {tab === "receipts" && (
         <ReceiptPanel products={products?.items ?? []} orders={orders ?? []} receipts={receipts ?? []} onSaved={() => mutateReceipts()} />
       )}
+      {tab === "restock" && (
+        <ReorderSuggestionsPanel
+          suppliers={suppliers ?? []}
+          onOrderCreated={() => {
+            mutateOrders();
+            setTab("orders");
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+interface ReorderSuggestion {
+  productId: string;
+  sku: string;
+  name: string;
+  category: string | null;
+  currentStock: number;
+  minStock: number;
+  soldQty: number;
+  averageDailySales: number;
+  targetStock: number;
+  recommendedQty: number;
+  unitCost: number;
+}
+
+function ReorderSuggestionsPanel({
+  suppliers,
+  onOrderCreated,
+}: {
+  suppliers: any[];
+  onOrderCreated: () => void;
+}) {
+  const { can } = useAuth();
+  const [historyDays, setHistoryDays] = useState(30);
+  const [coverDays, setCoverDays] = useState(14);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [supplierId, setSupplierId] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const { data, error: suggestionsError, isLoading } = useSWR(
+    `/purchasing/reorder-suggestions?days=${historyDays}&coverDays=${coverDays}`,
+    fetcher
+  );
+  const suggestions: ReorderSuggestion[] = data?.items ?? [];
+
+  useEffect(() => {
+    setSelectedIds(suggestions.map((item) => item.productId));
+  }, [data]);
+
+  async function createPurchaseOrder() {
+    const selectedItems = suggestions.filter((item) => selectedIds.includes(item.productId));
+    if (!supplierId || selectedItems.length === 0) return;
+
+    setError(null);
+    setBusy(true);
+    try {
+      await api.post("/purchasing/purchase-orders", {
+        supplierId,
+        note: `Draft dari saran restock (${historyDays} hari histori, target stok ${coverDays} hari)`,
+        items: selectedItems.map((item) => ({
+          productId: item.productId,
+          qty: item.recommendedQty,
+          unitCost: item.unitCost,
+        })),
+      });
+      onOrderCreated();
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : "Gagal membuat draft PO dari saran restock");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="card flex flex-wrap items-end gap-3">
+        <div>
+          <label className="label" htmlFor="reorder-history-days">Periode histori penjualan</label>
+          <select
+            id="reorder-history-days"
+            className="input min-w-40"
+            value={historyDays}
+            onChange={(event) => setHistoryDays(Number(event.target.value))}
+          >
+            <option value={14}>14 hari</option>
+            <option value={30}>30 hari</option>
+            <option value={60}>60 hari</option>
+            <option value={90}>90 hari</option>
+          </select>
+        </div>
+        <div>
+          <label className="label" htmlFor="reorder-cover-days">Target cakupan stok</label>
+          <select
+            id="reorder-cover-days"
+            className="input min-w-40"
+            value={coverDays}
+            onChange={(event) => setCoverDays(Number(event.target.value))}
+          >
+            <option value={7}>7 hari</option>
+            <option value={14}>14 hari</option>
+            <option value={30}>30 hari</option>
+          </select>
+        </div>
+        <p className="text-xs text-gray-500 flex-1 basis-full">
+          Saran dihitung dari rata-rata penjualan selesai dan stok minimum produk. Periksa jumlah dan harga sebelum mengirim PO untuk persetujuan.
+        </p>
+      </div>
+
+      {can("purchasing.manage") && suggestions.length > 0 && (
+        <div className="card flex flex-wrap items-end gap-3">
+          <div className="flex-1 min-w-52">
+            <label className="label" htmlFor="reorder-supplier">Supplier untuk draft PO</label>
+            <select
+              id="reorder-supplier"
+              className="input"
+              value={supplierId}
+              onChange={(event) => setSupplierId(event.target.value)}
+            >
+              <option value="">Pilih supplier</option>
+              {suppliers.map((supplier: any) => (
+                <option key={supplier.id} value={supplier.id}>{supplier.name}</option>
+              ))}
+            </select>
+          </div>
+          <button
+            type="button"
+            className="btn-primary"
+            disabled={busy || !supplierId || selectedIds.length === 0}
+            onClick={createPurchaseOrder}
+          >
+            {busy ? "Membuat PO..." : `Buat Draft PO (${selectedIds.length} produk)`}
+          </button>
+          {error && <p role="alert" className="text-xs text-red-600 basis-full">{error}</p>}
+        </div>
+      )}
+
+      <div className="card overflow-x-auto min-w-0">
+        {suggestionsError ? (
+          <p role="alert" className="text-sm text-red-600">
+            {suggestionsError instanceof ApiClientError
+              ? suggestionsError.message
+              : "Gagal memuat saran restock. Silakan coba lagi."}
+          </p>
+        ) : isLoading ? (
+          <p className="text-sm text-gray-400 animate-pulse">Menghitung saran restock...</p>
+        ) : suggestions.length === 0 ? (
+          <p className="text-sm text-gray-500">Tidak ada produk yang perlu direstock berdasarkan stok dan penjualan pada periode ini.</p>
+        ) : (
+          <table className="table">
+            <thead>
+              <tr>
+                {can("purchasing.manage") && <th>Pilih</th>}
+                <th>SKU</th>
+                <th>Produk</th>
+                <th>Kategori</th>
+                <th>Stok</th>
+                <th>Min. Stok</th>
+                <th>Terjual</th>
+                <th>Saran Beli</th>
+                {can("purchasing.manage") && <th>Estimasi Modal</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {suggestions.map((item) => (
+                <tr key={item.productId}>
+                  {can("purchasing.manage") && (
+                    <td>
+                      <input
+                        type="checkbox"
+                        aria-label={`Pilih ${item.name} untuk PO`}
+                        checked={selectedIds.includes(item.productId)}
+                        onChange={(event) =>
+                          setSelectedIds((current) =>
+                            event.target.checked
+                              ? [...current, item.productId]
+                              : current.filter((id) => id !== item.productId)
+                          )
+                        }
+                      />
+                    </td>
+                  )}
+                  <td className="font-mono text-xs">{item.sku}</td>
+                  <td className="font-medium">{item.name}</td>
+                  <td>{item.category ?? "-"}</td>
+                  <td>{item.currentStock}</td>
+                  <td>{item.minStock}</td>
+                  <td>{item.soldQty}</td>
+                  <td className="font-semibold text-amber-700">{item.recommendedQty}</td>
+                  {can("purchasing.manage") && <td>{formatCurrency(item.recommendedQty * item.unitCost)}</td>}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
     </div>
   );
 }

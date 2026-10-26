@@ -3,7 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/config/prisma";
 import { authenticate, requirePermission, resolveBranch } from "@/middleware/auth";
 import { generateCode } from "@/utils/codes";
-import { digiflazzInquiry, mapDigiflazzStatus, DigiflazzError, DigiflazzResult } from "./digiflazz.client";
+import { digiflazzInquiry, digiflazzProductList, mapDigiflazzStatus, DigiflazzError, DigiflazzResult } from "./digiflazz.client";
 import { ApiError } from "@/utils/errors";
 import { env } from "@/config/env";
 
@@ -83,6 +83,47 @@ ppobRouter.get("/products", requirePermission("ppob.view"), async (req, res) => 
   const where: any = { isActive: true };
   if (category) where.category = category;
   res.json(await prisma.ppobProduct.findMany({ where, orderBy: { productName: "asc" } }));
+});
+
+ppobRouter.post("/products/sync", requirePermission("ppob.manage"), async (_req, res) => {
+  let products;
+  try {
+    products = await digiflazzProductList();
+  } catch (err) {
+    if (err instanceof DigiflazzError) throw ApiError.badGateway(err.message);
+    throw err;
+  }
+  if (products.length === 0) {
+    throw ApiError.badGateway("Digiflazz tidak mengembalikan produk untuk katalog prepaid.");
+  }
+
+  await prisma.$transaction(
+    products.map((product) =>
+      prisma.ppobProduct.upsert({
+        where: { buyerSkuCode: product.buyer_sku_code },
+        create: {
+          buyerSkuCode: product.buyer_sku_code,
+          productName: product.product_name,
+          category: product.category,
+          brand: product.brand ?? null,
+          price: product.price,
+          isActive: product.buyer_product_status && product.seller_product_status,
+        },
+        update: {
+          productName: product.product_name,
+          category: product.category,
+          brand: product.brand ?? null,
+          price: product.price,
+          isActive: product.buyer_product_status && product.seller_product_status,
+        },
+      })
+    )
+  );
+
+  res.json({
+    synced: products.length,
+    active: products.filter((product) => product.buyer_product_status && product.seller_product_status).length,
+  });
 });
 
 ppobRouter.post("/products", requirePermission("ppob.manage"), async (req, res) => {

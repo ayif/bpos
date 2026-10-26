@@ -23,6 +23,11 @@ Setelah semua service sehat:
    ```bash
    docker compose exec backend npm run seed
    ```
+   Tambahkan 30 produk contoh minimarket beserta stok awal di Cabang Pusat:
+   ```bash
+   docker compose exec backend npm run seed:minimarket
+   ```
+   Seed minimarket aman dijalankan ulang; produk yang sudah ada dan stoknya tidak ditambahkan kembali.
 3. Buka frontend di `http://localhost:3000` dan backend API di `http://localhost:4000/api/health`.
 
 ### Akun demo (password: `password123`)
@@ -60,7 +65,7 @@ Pastikan `DATABASE_URL` dan `REDIS_URL` di `backend/.env` (atau env yang di-expo
 - **POS**: checkout dengan pembayaran Cash/Transfer/QRIS (termasuk split/mixed), pencarian produk & lookup barcode, diskon per-item & total, pajak otomatis, kembalian, cetak struk PDF (58mm/80mm/A4 mengikuti pengaturan toko), retur/refund.
 - **Produk & stok**: CRUD produk/kategori/satuan, stok per cabang dengan **FIFO costing** (batch stok tercatat per penerimaan, dikonsumsi tertua-dulu saat penjualan), import & export Excel.
 - **Multi cabang & inventory**: transfer stok antar cabang (otomatis keluar-masuk dengan FIFO cost carry-over), stock opname dengan penyesuaian otomatis + audit trail (`StockMovement`).
-- **Pembelian & supplier**: CRUD supplier, purchase order, penerimaan barang yang otomatis menambah stok (batch FIFO baru) dan posting jurnal akuntansi.
+- **Pembelian & supplier**: CRUD supplier, purchase order, penerimaan barang yang otomatis menambah stok (batch FIFO baru) dan posting jurnal akuntansi; saran restock memakai stok minimum dan rata-rata penjualan historis, dengan opsi membuat draft PO untuk persetujuan.
 - **Pelanggan & loyalty**: CRUD pelanggan, akumulasi/penukaran poin, auto-assign price level berdasarkan ambang poin.
 - **Akuntansi**: chart of accounts, jurnal otomatis untuk penjualan/pembelian/pengeluaran (double-entry), laporan Neraca, Laba Rugi, dan Arus Kas dihitung dari jurnal.
 - **Laporan**: penjualan & laba (berbasis FIFO COGS), produk terlaris, export PDF/Excel/CSV.

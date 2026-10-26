@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { env } from "@/config/env";
+import { z } from "zod";
 
 // Thin client around the Digiflazz API. Runs in "mock" mode by default
 // (no real credentials needed) so the module works out of the box; set
@@ -59,6 +60,18 @@ export interface DigiflazzResult {
   sn: string | null;
 }
 
+const priceListSchema = z.array(
+  z.object({
+    buyer_sku_code: z.string().min(1),
+    product_name: z.string().min(1),
+    category: z.string().min(1),
+    brand: z.string().nullish(),
+    price: z.coerce.number().positive(),
+    buyer_product_status: z.boolean(),
+    seller_product_status: z.boolean(),
+  })
+);
+
 // Digiflazz documents exactly these three status strings for both the
 // synchronous inquiry response and the async callback payload. Match them
 // explicitly rather than inferring from `rc` alone.
@@ -103,12 +116,19 @@ export async function digiflazzInquiry(buyerSkuCode: string, customerNo: string,
 
 export async function digiflazzProductList() {
   if (env.digiflazz.mode === "mock") {
-    return [];
+    throw new DigiflazzError("Sinkronisasi katalog memerlukan DIGIFLAZZ_MODE=live dan kredensial API Digiflazz.");
+  }
+  if (!env.digiflazz.username || !env.digiflazz.apiKey) {
+    throw new DigiflazzError("DIGIFLAZZ_USERNAME dan DIGIFLAZZ_API_KEY harus dikonfigurasi untuk sinkronisasi katalog.");
   }
   const json = await callDigiflazz("/price-list", {
     cmd: "prepaid",
     username: env.digiflazz.username,
     sign: sign(env.digiflazz.username, env.digiflazz.apiKey, "pricelist"),
   });
-  return json.data ?? [];
+  const parsed = priceListSchema.safeParse(json?.data);
+  if (!parsed.success) {
+    throw new DigiflazzError("Respons daftar harga Digiflazz tidak sesuai format yang diharapkan.");
+  }
+  return parsed.data;
 }
